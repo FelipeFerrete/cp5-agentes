@@ -1,0 +1,128 @@
+name: cp5-agentes
+
+# T01 - Infra Docker (n8n + Mosquitto + MySQL)
+# Versões fixadas (verificadas em 2026-09-28):
+#   n8n:        2.40.7            (docker.io/n8nio/n8n:2.40.7 == :stable no momento do pull)
+#   mosquitto:  2.1.2-alpine      (docker.io/library/eclipse-mosquitto:2.1.2-alpine == :2 no momento do pull)
+#   mysql:      8.4.11            (docker.io/library/mysql:8.4.11 == :8.4 no momento do pull)
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    container_name: cp5_mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=-03:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: America/Sao_Paulo
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  mosquitto:
+    image: eclipse-mosquitto:2.1.2-alpine
+    container_name: cp5_mosquitto
+    restart: unless-stopped
+    environment:
+      MQTT_USER: ${MQTT_USER}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    # Gera o password_file a partir de MQTT_USER/MQTT_PASSWORD do .env a cada start
+    # (o arquivo gerado vive apenas dentro do container/volume; nunca é versionado).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        rm -f /mosquitto/config/passwd
+        mosquitto_passwd -b -c /mosquitto/config/passwd "$$MQTT_USER" "$$MQTT_PASSWORD"
+        chmod 0644 /mosquitto/config/passwd
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mosquitto_pub -h 127.0.0.1 -p 1883 -u \"$$MQTT_USER\" -P \"$$MQTT_PASSWORD\" -t healthcheck -m ping -q 0 -i healthcheck-probe || exit 1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  n8n:
+    image: n8nio/n8n:2.40.7
+    container_name: cp5_n8n
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    environment:
+      GENERIC_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_SECURE_COOKIE: "false"
+      N8N_RESTRICT_FILE_ACCESS_TO: /files
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      # Repasse de variáveis de aplicação (lidas pelos workflows via $env / Code nodes)
+      DRY_RUN: ${DRY_RUN}
+      GROQ_MODEL_SUPERVISOR: ${GROQ_MODEL_SUPERVISOR}
+      GROQ_MODEL_ESPECIALISTA: ${GROQ_MODEL_ESPECIALISTA}
+      EMAIL_REMETENTE: ${EMAIL_REMETENTE}
+      EMAIL_DESTINO: ${EMAIL_DESTINO}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      TRELLO_LIST_ID: ${TRELLO_LIST_ID}
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../config:/files/config:ro
+      - ../tests:/files/tests:ro
+      - ../contracts:/files/contracts:ro
+      - ../prompts:/files/prompts:ro
+      - ../docs/evidencias:/files/docs/evidencias:rw
+      - ../n8n/workflows:/files/n8n/workflows:rw
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+volumes:
+  n8n_data:
+    name: cp5_n8n_data
+  mysql_data:
+    name: cp5_mysql_data
+  mosquitto_data:
+    name: cp5_mosquitto_data
+  mosquitto_log:
+    name: cp5_mosquitto_log
