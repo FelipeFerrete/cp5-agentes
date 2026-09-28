@@ -1,0 +1,9 @@
+# T05 - Simulador MQTT
+# paho-mqtt 2.x: cliente MQTT usado por publisher.py
+paho-mqtt>=2.1,<3
+
+# jsonschema: opcional, só usado se você quiser que o publisher.py
+# autovalide os payloads do golden set contra contracts/payload.schema.json
+# antes de publicar (flag --validar). Sem esta lib o script funciona
+# normalmente, só pula a autovalidação com um aviso.
+jsonschema>=4.21,<5
