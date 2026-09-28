@@ -27,3 +27,6 @@ tests/relatorios/*.tmp
 Thumbs.db
 .vscode/
 .idea/
+
+# Bundle de CA gerado localmente (específico da rede)
+infra/certs/*.pem

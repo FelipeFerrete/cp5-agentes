@@ -16,8 +16,10 @@ if [ -z "$GROQ_API_KEY" ]; then
   exit 1
 fi
 
-# Testa a chave antes de importar (lista modelos disponíveis)
-http=$(curl -s -o /tmp/groq_models.json -w '%{http_code}' \
+# Testa a chave antes de importar (lista modelos disponíveis).
+# --ssl-no-revoke: no Windows (schannel) a checagem de revogação falha atrás de
+# proxies com inspeção HTTPS; em outras plataformas a opção é ignorada.
+http=$(curl -s --ssl-no-revoke -o /tmp/groq_models.json -w '%{http_code}' \
   -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models)
 if [ "$http" != "200" ]; then
   echo "A Groq recusou a chave (HTTP $http)." >&2
@@ -38,7 +40,8 @@ cat > "$SAIDA" <<EOF
 ]
 EOF
 
-MSYS_NO_PATHCONV=1 docker cp "$SAIDA" cp5_n8n:/tmp/groq_cp5.json
+ORIGEM="$(cygpath -w "$SAIDA" 2>/dev/null || echo "$SAIDA")"   # Git Bash: caminho no formato Windows
+MSYS_NO_PATHCONV=1 docker cp "$ORIGEM" cp5_n8n:/tmp/groq_cp5.json
 MSYS_NO_PATHCONV=1 docker exec cp5_n8n n8n import:credentials --input=/tmp/groq_cp5.json
-MSYS_NO_PATHCONV=1 docker exec cp5_n8n rm -f /tmp/groq_cp5.json
+MSYS_NO_PATHCONV=1 docker exec -u root cp5_n8n rm -f /tmp/groq_cp5.json
 echo "Credencial cred-groq-cp5 importada no n8n."

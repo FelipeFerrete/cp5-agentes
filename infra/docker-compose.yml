@@ -87,6 +87,8 @@ services:
       N8N_SECURE_COOKIE: "false"
       N8N_RESTRICT_FILE_ACCESS_TO: /files
       N8N_DIAGNOSTICS_ENABLED: "false"
+      # CA extra para redes com inspeção HTTPS (ex.: FortiGate da FIAP). Vazio = desativado.
+      NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
       # Repasse de variáveis de aplicação (lidas pelos workflows via $env / Code nodes)
       DRY_RUN: ${DRY_RUN}
       GROQ_MODEL_SUPERVISOR: ${GROQ_MODEL_SUPERVISOR}
@@ -108,6 +110,7 @@ services:
       - ../tests:/files/tests:ro
       - ../contracts:/files/contracts:ro
       - ../prompts:/files/prompts:ro
+      - ./certs:/certs:ro
       - ../docs/evidencias:/files/docs/evidencias:rw
       - ../n8n/workflows:/files/n8n/workflows:rw
     healthcheck:
