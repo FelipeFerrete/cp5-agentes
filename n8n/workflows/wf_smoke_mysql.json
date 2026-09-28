@@ -1,0 +1,85 @@
+{
+  "id": "wf-smoke-0002",
+  "name": "WF-SMOKE MySQL",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "2b2b2b2b-0000-4000-8000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-220, -120]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "smoke-mysql",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2b2b2b2b-0000-4000-8000-000000000004",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-220, 120],
+      "webhookId": "smoke-mysql-webhook-0001"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT 1 AS ok, @@time_zone AS tz",
+        "options": {}
+      },
+      "id": "2b2b2b2b-0000-4000-8000-000000000002",
+      "name": "MySQL",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [0, 0],
+      "credentials": {
+        "mySql": {
+          "id": "cred-mysql-cp5",
+          "name": "MySQL CP5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "2b2b2b2b-0000-4000-8000-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          { "node": "MySQL", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          { "node": "MySQL", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "MySQL": {
+      "main": [
+        [
+          { "node": "Respond to Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true
+}
