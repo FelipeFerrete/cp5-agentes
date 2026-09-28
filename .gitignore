@@ -1,0 +1,29 @@
+# Segredos / ambiente local
+infra/.env
+infra/mosquitto/passwd
+infra/mosquitto/data/
+infra/mosquitto/log/
+
+# Credenciais reais do n8n (usar os *.json.example versionados como modelo)
+n8n/credentials/*.json
+!n8n/credentials/*.json.example
+n8n/nodes_export_raw.json
+n8n/nodes_filtered_full.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Relatórios/temporários de teste
+tests/relatorios/*.tmp
+
+# SO / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
