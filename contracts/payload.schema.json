@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cp5/payload.schema.json",
+  "title": "Payload MQTT de telemetria de máquina",
+  "description": "Publicado em fabrica/{id_maquina}/sensores. Formato do slide 15, com campos opcionais de rastreio herdados da CP2.",
+  "type": "object",
+  "required": [
+    "id_maquina", "temperatura", "vibracao", "tensao", "corrente",
+    "fator_potencia", "taxa_producao", "taxa_producao_esperada"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id_maquina": { "type": "string", "pattern": "^[A-Z0-9_]{3,32}$" },
+    "temperatura": { "type": "number", "description": "°C" },
+    "vibracao": { "type": "number", "description": "mm/s RMS" },
+    "tensao": { "type": "number", "description": "V" },
+    "corrente": { "type": "number", "description": "A" },
+    "fator_potencia": { "type": "number", "minimum": 0, "maximum": 1 },
+    "taxa_producao": { "type": "number", "minimum": 0, "description": "unidades/h" },
+    "taxa_producao_esperada": { "type": "number", "exclusiveMinimum": 0, "description": "unidades/h" },
+    "ts": { "type": "string", "format": "date-time", "description": "Opcional. Se ausente, o n8n usa o horário de recebimento." },
+    "msg_id": { "type": "integer", "minimum": 0, "description": "Opcional. Sequencial do dispositivo (padrão CP2)." },
+    "uptime_s": { "type": "integer", "minimum": 0, "description": "Opcional. Segundos desde o boot (padrão CP2)." }
+  },
+  "examples": [
+    {
+      "id_maquina": "MOTOR_01",
+      "temperatura": 86.5,
+      "vibracao": 8.2,
+      "tensao": 220,
+      "corrente": 18.5,
+      "fator_potencia": 0.62,
+      "taxa_producao": 42,
+      "taxa_producao_esperada": 60
+    }
+  ]
+}

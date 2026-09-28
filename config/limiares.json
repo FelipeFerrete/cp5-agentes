@@ -1,0 +1,81 @@
+{
+  "versao": "1.0",
+  "descricao": "Limiares do guardrail determinístico e referência injetada nos prompts dos agentes. Fonte única: qualquer mudança de limite acontece só aqui.",
+  "status": {
+    "ordem": ["NORMAL", "ATENCAO", "CRITICO"],
+    "rotulos": { "NORMAL": "NORMAL", "ATENCAO": "ATENÇÃO", "CRITICO": "CRÍTICO" }
+  },
+  "acoes_por_status": {
+    "NORMAL": [],
+    "ATENCAO": ["TELEGRAM"],
+    "CRITICO": ["TELEGRAM", "EMAIL", "TRELLO"]
+  },
+  "id_maquina_regex": "^[A-Z0-9_]{3,32}$",
+  "campos_obrigatorios": [
+    "id_maquina", "temperatura", "vibracao", "tensao", "corrente",
+    "fator_potencia", "taxa_producao", "taxa_producao_esperada"
+  ],
+  "faixa_fisica": {
+    "_comentario": "Fora desta faixa o valor é fisicamente implausível: sensor_fault, requer humano. Não é um limite operacional.",
+    "temperatura": { "min": -40, "max": 200, "unidade": "°C" },
+    "vibracao": { "min": 0, "max": 100, "unidade": "mm/s" },
+    "tensao": { "min": 0, "max": 500, "unidade": "V" },
+    "corrente": { "min": 0, "max": 500, "unidade": "A" },
+    "fator_potencia": { "min": 0, "max": 1, "unidade": "" },
+    "taxa_producao": { "min": 0, "max": 10000, "unidade": "un/h" },
+    "taxa_producao_esperada": { "min": 0.001, "max": 10000, "unidade": "un/h" }
+  },
+  "especialistas": {
+    "manutencao": {
+      "grandezas": {
+        "temperatura": {
+          "regra": "acima", "atencao": 70, "critico": 80, "unidade": "°C",
+          "fonte": "Slide 2 do enunciado (SE temperatura > 80 °C ENTÃO alerta)"
+        },
+        "vibracao": {
+          "regra": "acima", "atencao": 4.5, "critico": 7.1, "unidade": "mm/s RMS",
+          "fonte": "ISO 10816-3 (aproximação das zonas B/C e C/D)"
+        }
+      }
+    },
+    "energia": {
+      "grandezas": {
+        "tensao": {
+          "regra": "desvio_percentual_nominal", "nominal": "tensao_nominal",
+          "atencao": 5, "critico": 10, "unidade": "% de desvio",
+          "fonte": "Faixas de tensão adequada/precária (PRODIST, aproximação)"
+        },
+        "corrente": {
+          "regra": "percentual_nominal", "nominal": "corrente_nominal",
+          "atencao": 100, "critico": 120, "unidade": "% da nominal",
+          "fonte": "Corrente nominal da placa do motor (tabela maquinas)"
+        },
+        "fator_potencia": {
+          "regra": "abaixo", "atencao": 0.92, "critico": 0.80, "unidade": "",
+          "fonte": "ANEEL: fator de potência de referência 0,92"
+        }
+      }
+    },
+    "producao": {
+      "grandezas": {
+        "eficiencia": {
+          "regra": "abaixo", "atencao": 90, "critico": 70, "unidade": "%",
+          "formula": "taxa_producao / taxa_producao_esperada * 100",
+          "fonte": "Critério interno de desempenho da linha"
+        }
+      }
+    }
+  },
+  "semantica_regras": {
+    "acima": "valor > critico → CRITICO; valor > atencao → ATENCAO; senão NORMAL",
+    "abaixo": "valor < critico → CRITICO; valor < atencao → ATENCAO; senão NORMAL",
+    "desvio_percentual_nominal": "d = |valor - nominal| / nominal * 100; d > critico → CRITICO; d > atencao → ATENCAO",
+    "percentual_nominal": "p = valor / nominal * 100; p > critico → CRITICO; p > atencao → ATENCAO"
+  },
+  "tendencia": {
+    "_comentario": "Usado pelos agentes (não pelo guardrail): alta sustentada na janela autoriza escalar um nível.",
+    "janela_min": 120,
+    "variacao_percentual_para_escalar": 15,
+    "amostras_minimas": 6
+  }
+}

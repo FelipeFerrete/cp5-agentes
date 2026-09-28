@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cp5/leitura.schema.json",
+  "title": "Leitura normalizada + resultado do guardrail",
+  "description": "Saída dos nós 'validar' e 'guardrail' do WF-10. É a entrada do Supervisor. Valores ausentes/inválidos ficam null, nunca 0.",
+  "type": "object",
+  "required": ["id_leitura", "id_maquina", "ts", "origem", "valores", "validacao", "guardrail"],
+  "additionalProperties": false,
+  "properties": {
+    "id_leitura": { "type": ["integer", "null"], "description": "PK em leituras; null antes do insert" },
+    "id_maquina": { "type": "string" },
+    "ts": { "type": "string", "format": "date-time" },
+    "origem": { "enum": ["mqtt", "webhook", "validacao"] },
+    "msg_id": { "type": ["integer", "null"] },
+    "valores": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "temperatura": { "type": ["number", "null"] },
+        "vibracao": { "type": ["number", "null"] },
+        "tensao": { "type": ["number", "null"] },
+        "corrente": { "type": ["number", "null"] },
+        "fator_potencia": { "type": ["number", "null"] },
+        "taxa_producao": { "type": ["number", "null"] },
+        "taxa_producao_esperada": { "type": ["number", "null"] },
+        "eficiencia": { "type": ["number", "null"], "description": "Derivado: taxa_producao / taxa_producao_esperada * 100" }
+      }
+    },
+    "nominais": {
+      "type": ["object", "null"],
+      "description": "Da tabela maquinas; null se a máquina é desconhecida",
+      "properties": {
+        "descricao": { "type": "string" },
+        "tensao_nominal": { "type": "number" },
+        "corrente_nominal": { "type": "number" }
+      }
+    },
+    "validacao": {
+      "type": "object",
+      "required": ["ok", "campos_ausentes", "tipo_invalido", "fora_faixa_fisica", "maquina_conhecida"],
+      "additionalProperties": false,
+      "properties": {
+        "ok": { "type": "boolean" },
+        "campos_ausentes": { "type": "array", "items": { "type": "string" } },
+        "tipo_invalido": { "type": "array", "items": { "type": "string" } },
+        "fora_faixa_fisica": { "type": "array", "items": { "type": "string" } },
+        "id_invalido": { "type": "boolean" },
+        "maquina_conhecida": { "type": "boolean" },
+        "campos_extras": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "guardrail": {
+      "type": "object",
+      "required": ["status", "sensor_fault", "requer_humano", "por_especialista", "violacoes"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "sensor_fault": { "type": "boolean" },
+        "requer_humano": { "type": "boolean" },
+        "por_especialista": {
+          "type": "object",
+          "required": ["manutencao", "producao", "energia"],
+          "properties": {
+            "manutencao": { "$ref": "#/$defs/status" },
+            "producao": { "$ref": "#/$defs/status" },
+            "energia": { "$ref": "#/$defs/status" }
+          }
+        },
+        "violacoes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["especialista", "grandeza", "valor", "limite", "status"],
+            "properties": {
+              "especialista": { "enum": ["manutencao", "producao", "energia"] },
+              "grandeza": { "type": "string" },
+              "valor": { "type": "number" },
+              "limite": { "type": "number" },
+              "status": { "enum": ["ATENCAO", "CRITICO"] }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "status": { "enum": ["NORMAL", "ATENCAO", "CRITICO"] }
+  }
+}

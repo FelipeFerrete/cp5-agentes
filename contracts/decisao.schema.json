@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cp5/decisao.schema.json",
+  "title": "Decisão consolidada do Supervisor",
+  "description": "Resposta do webhook /cp5/avaliar e linha em decisoes. 'status_final' e 'acoes_previstas' são calculados por código (nó consolidar), não pelo LLM.",
+  "type": "object",
+  "required": [
+    "id_leitura", "id_maquina", "ts",
+    "status_guardrail", "status_llm", "status_final",
+    "sensor_fault", "requer_humano",
+    "especialistas", "resumo_operador", "justificativa", "acoes_previstas"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id_decisao": { "type": ["integer", "null"] },
+    "id_leitura": { "type": ["integer", "null"] },
+    "id_maquina": { "type": "string" },
+    "ts": { "type": "string", "format": "date-time" },
+    "status_guardrail": { "$ref": "#/$defs/status" },
+    "status_llm": { "$ref": "#/$defs/status_ou_nulo", "description": "null quando o LLM não foi chamado (ex.: sensor_fault) ou falhou" },
+    "status_final": { "$ref": "#/$defs/status", "description": "max(status_llm, status_guardrail) pela ordem NORMAL < ATENCAO < CRITICO" },
+    "sensor_fault": { "type": "boolean" },
+    "requer_humano": { "type": "boolean", "description": "true se dados ausentes/inválidos, máquina desconhecida, sensor_fault ou algum especialista com dados_insuficientes" },
+    "especialistas": {
+      "type": "object",
+      "required": ["manutencao", "producao", "energia"],
+      "additionalProperties": false,
+      "properties": {
+        "manutencao": { "oneOf": [{ "$ref": "especialista.schema.json" }, { "type": "null" }] },
+        "producao": { "oneOf": [{ "$ref": "especialista.schema.json" }, { "type": "null" }] },
+        "energia": { "oneOf": [{ "$ref": "especialista.schema.json" }, { "type": "null" }] }
+      }
+    },
+    "resumo_operador": { "type": "string", "maxLength": 500, "description": "Texto curto usado no Telegram" },
+    "justificativa": { "type": "string", "maxLength": 2000, "description": "Raciocínio do supervisor, usado no e-mail e no card Trello" },
+    "acoes_previstas": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["TELEGRAM", "EMAIL", "TRELLO"] },
+      "description": "Derivado de acoes_por_status[status_final] em limiares.json. Se requer_humano: TRELLO é removido (ordem de serviço exige dado confiável; um humano confirma antes) e o piso é ATENCAO, garantindo ao menos o TELEGRAM."
+    },
+    "modelo": { "type": ["string", "null"] },
+    "latencia_ms": { "type": ["integer", "null"] }
+  },
+  "$defs": {
+    "status": { "enum": ["NORMAL", "ATENCAO", "CRITICO"] },
+    "status_ou_nulo": { "enum": ["NORMAL", "ATENCAO", "CRITICO", null] }
+  }
+}

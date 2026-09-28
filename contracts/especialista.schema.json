@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cp5/especialista.schema.json",
+  "title": "Parecer de agente especialista",
+  "description": "Saída estruturada dos agentes Manutenção, Produção e Energia. Mantida rasa de propósito, porque modelos pequenos do Groq erram schemas profundos.",
+  "type": "object",
+  "required": ["especialista", "status", "achados", "tendencia", "recomendacao", "dados_insuficientes", "confianca"],
+  "additionalProperties": false,
+  "properties": {
+    "especialista": { "enum": ["manutencao", "producao", "energia"] },
+    "status": { "enum": ["NORMAL", "ATENCAO", "CRITICO"] },
+    "achados": {
+      "type": "array",
+      "description": "Uma entrada por grandeza analisada. 'valor' deve existir na leitura ou na resposta de uma tool.",
+      "items": {
+        "type": "object",
+        "required": ["grandeza", "valor", "status", "observacao"],
+        "additionalProperties": false,
+        "properties": {
+          "grandeza": { "type": "string" },
+          "valor": { "type": ["number", "null"] },
+          "limite_violado": { "type": ["number", "null"] },
+          "status": { "enum": ["NORMAL", "ATENCAO", "CRITICO"] },
+          "observacao": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "tendencia": {
+      "type": ["object", "null"],
+      "description": "Preenchido somente se a tool de histórico foi consultada.",
+      "additionalProperties": false,
+      "properties": {
+        "grandeza": { "type": "string" },
+        "janela_min": { "type": "number" },
+        "media": { "type": ["number", "null"] },
+        "desvio_padrao": { "type": ["number", "null"] },
+        "variacao_percentual": { "type": ["number", "null"] },
+        "amostras": { "type": "integer" }
+      }
+    },
+    "recomendacao": { "type": "string", "maxLength": 400 },
+    "dados_insuficientes": { "type": "boolean" },
+    "confianca": { "enum": ["baixa", "media", "alta"] }
+  }
+}
