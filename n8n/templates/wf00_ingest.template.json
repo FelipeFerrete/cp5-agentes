@@ -1,0 +1,185 @@
+{
+  "id": "wf-cp5-00-ingest",
+  "name": "WF-00 Ingest MQTT",
+  "nodes": [
+    {
+      "parameters": {
+        "topics": "fabrica/+/sensores:1",
+        "options": {
+          "jsonParseBody": true,
+          "onlyMessage": false,
+          "parallelProcessing": true
+        }
+      },
+      "id": "c52010000-0000-4000-8000-000000000201",
+      "name": "MQTT Sensores",
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1380,
+        -150
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "cred-mqtt-cp5",
+          "name": "Mosquitto CP5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// $json = {message, topic} (nó MQTT Trigger, jsonParseBody=true).\n// message já vem parseado como objeto SE for JSON válido; senão continua\n// string crua -- preservada assim de propósito (o WF-10 decide o que fazer\n// com uma string malformada, nunca inventamos um objeto aqui).\nconst item = $input.first().json;\nreturn [{\n  json: {\n    payload: item.message,\n    origem: 'mqtt',\n    topico: item.topic,\n  },\n}];"
+      },
+      "id": "c52020000-0000-4000-8000-000000000202",
+      "name": "Normalizar Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1160,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "value": "wf-cp5-10-pipeline"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "c52030000-0000-4000-8000-000000000203",
+      "name": "Chamar WF-10 (fire-and-forget)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -940,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "topics": "fabrica/+/status:1",
+        "options": {
+          "jsonParseBody": true,
+          "onlyMessage": false,
+          "parallelProcessing": true
+        }
+      },
+      "id": "c52110000-0000-4000-8000-000000000211",
+      "name": "MQTT Status",
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1380,
+        200
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "cred-mqtt-cp5",
+          "name": "Mosquitto CP5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message && $json.message.status }}",
+              "rightValue": "offline",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c52120000-0000-4000-8000-000000000212",
+      "name": "E offline?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1160,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// R10b (extra, mantido simples de propósito): só registra no próprio output\n// da execução do n8n (visível em Executions) que uma máquina ficou offline --\n// não insere em MySQL nem dispara alerta nenhum. Evolução sugerida (fora do\n// escopo de T07): inserir em uma tabela \"eventos_maquina\" (ou reaproveitar\n// acoes_log com canal customizado) e/ou chamar o WF-30 com um status\n// sintético ATENCAO + requer_humano=true, para que \"sensor sumiu\" também\n// vire um alerta ao operador (hoje o offline só fica visível para quem olha\n// o histórico de execuções deste workflow no n8n).\nconst item = $input.first().json;\nconst idMaquina = (item.topic || '').split('/')[1] || null;\nreturn [{\n  json: {\n    evento: 'maquina_offline',\n    id_maquina: idMaquina,\n    topico: item.topic,\n    ts: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "c52130000-0000-4000-8000-000000000213",
+      "name": "Registrar Offline (log simples)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -940,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "MQTT Sensores": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Chamar WF-10 (fire-and-forget)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MQTT Status": {
+      "main": [
+        [
+          {
+            "node": "E offline?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E offline?": {
+      "main": [
+        [
+          {
+            "node": "Registrar Offline (log simples)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true
+}

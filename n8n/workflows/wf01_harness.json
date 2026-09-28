@@ -1,0 +1,114 @@
+{
+  "id": "wf-cp5-01-harness",
+  "name": "WF-01 Test Harness",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cp5/avaliar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c51010000-0000-4000-8000-000000000101",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1380,
+        0
+      ],
+      "webhookId": "cp5-avaliar-harness-0001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Body pode ser objeto JSON (Content-Type: application/json) ou texto cru\n// (qualquer outro Content-Type / JSON inválido) -- nos dois casos repassamos\n// como está: quem decide o que fazer com string vs objeto é o WF-10\n// (\"Preparar Payload\"), não este harness.\nconst item = $input.first().json;\nconst origem = (item.query && item.query.origem) ? item.query.origem : 'webhook';\nreturn [{\n  json: {\n    payload: item.body,\n    origem,\n  },\n}];"
+      },
+      "id": "c51020000-0000-4000-8000-000000000102",
+      "name": "Preparar Chamada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "value": "wf-cp5-10-pipeline"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c51030000-0000-4000-8000-000000000103",
+      "name": "Chamar WF-10",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -940,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "c51040000-0000-4000-8000-000000000104",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -720,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Preparar Chamada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Chamada": {
+      "main": [
+        [
+          {
+            "node": "Chamar WF-10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar WF-10": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true
+}
