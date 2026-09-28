@@ -1,0 +1,5 @@
+# Fins de linha LF em todo o repositório: scripts .sh e arquivos montados
+# nos containers quebram com CRLF quando clonados no Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
