@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:640px;margin:0 auto;padding:16px;">
+  <h2 style="margin:0 0 4px;">[CP5] CRÍTICO — MOTOR_01</h2>
+  <p style="margin:0 0 16px;color:#555;">Decisão #20 · 2026-09-28T13:28:12.165Z</p>
+
+  <table style="border-collapse:collapse;margin-bottom:16px;font-size:13px;">
+    <tr><td style="padding:4px 12px 4px 0;color:#555;">Status guardrail</td><td style="padding:4px;"><strong>CRITICO</strong></td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#555;">Status LLM</td><td style="padding:4px;"><strong>CRITICO</strong></td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#555;">Status final</td><td style="padding:4px;"><strong>CRÍTICO</strong></td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#555;">Requer verificação humana</td><td style="padding:4px;"><strong>não</strong></td></tr>
+  </table>
+
+  <h3 style="margin:0 0 6px;">Resumo</h3>
+  <p style="margin:0 0 16px;">MOTOR_01 em CRÍTICO: temperatura 92.3°C e vibração 5.1 mm/s acima dos limites; corrente 118% da nominal.</p>
+
+  <h3 style="margin:0 0 6px;">Justificativa</h3>
+  <p style="margin:0 0 16px;white-space:pre-wrap;">Guardrail e LLM concordam em CRITICO. Manutenção: temperatura 92.3°C &gt; crítico 80°C (ISO 10816-3 zona C/D aproximada para vibração). Energia: corrente 118% da nominal, ainda abaixo do crítico de 120%, mas em tendência de alta sustentada na janela de 120 min. Produção sem dados suficientes nesta leitura.</p>
+
+  <h3 style="margin:16px 0 6px;border-top:1px solid #ddd;padding-top:12px;">Pareceres dos especialistas</h3>
+  
+    <h3 style="margin:16px 0 6px;">Manutenção — <span style="font-weight:normal;">CRITICO</span></h3>
+    <table style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:8px;">
+      <thead><tr style="background:#f5f5f5;">
+        <th style="text-align:left;padding:6px;">Grandeza</th>
+        <th style="text-align:left;padding:6px;">Valor</th>
+        <th style="text-align:left;padding:6px;">Status</th>
+        <th style="text-align:left;padding:6px;">Observação</th>
+      </tr></thead>
+      <tbody>
+    <tr>
+      <td style="padding:6px;border-bottom:1px solid #eee;">temperatura</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">92.3</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">CRITICO</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">Temperatura 92.3°C acima do limite crítico de 80°C.</td>
+    </tr>
+    <tr>
+      <td style="padding:6px;border-bottom:1px solid #eee;">vibracao</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">5.1</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">ATENCAO</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">Vibração 5.1 mm/s RMS acima do limiar de atenção (4.5).</td>
+    </tr></tbody>
+    </table>
+    <p style="margin:0 0 4px;"><strong>Recomendação:</strong> Parar a máquina e inspecionar o sistema de refrigeração imediatamente.</p>
+    <p style="margin:0;color:#555;font-size:12px;">Confiança: alta · Dados insuficientes: não</p>
+  
+  <h3 style="margin:16px 0 6px;">Produção</h3><p style="color:#777;margin:0 0 12px;">Parecer não disponível (LLM não consultado ou falhou).</p>
+  
+    <h3 style="margin:16px 0 6px;">Energia — <span style="font-weight:normal;">ATENCAO</span></h3>
+    <table style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:8px;">
+      <thead><tr style="background:#f5f5f5;">
+        <th style="text-align:left;padding:6px;">Grandeza</th>
+        <th style="text-align:left;padding:6px;">Valor</th>
+        <th style="text-align:left;padding:6px;">Status</th>
+        <th style="text-align:left;padding:6px;">Observação</th>
+      </tr></thead>
+      <tbody>
+    <tr>
+      <td style="padding:6px;border-bottom:1px solid #eee;">corrente</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">59</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">ATENCAO</td>
+      <td style="padding:6px;border-bottom:1px solid #eee;">Corrente em 118% da nominal (50A), acima do limiar de atenção (100%).</td>
+    </tr></tbody>
+    </table>
+    <p style="margin:0 0 4px;"><strong>Recomendação:</strong> Verificar carga mecânica e conexões do quadro elétrico.</p>
+    <p style="margin:0;color:#555;font-size:12px;">Confiança: media · Dados insuficientes: não</p>
+  
+
+  <p style="margin-top:24px;padding-top:12px;border-top:1px solid #ddd;color:#888;font-size:11px;">
+    Relatório gerado automaticamente — decisão final sob responsabilidade da equipe de manutenção.
+  </p>
+</body></html>

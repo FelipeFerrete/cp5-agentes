@@ -1,0 +1,984 @@
+{
+  "id": "wf-cp5-30-acoes",
+  "name": "WF-30 Ações",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "4aef4175-a74b-4d67-9ae8-3e4edb52dda2",
+      "name": "Executado por Outro Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1600,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cp5/acoes-teste",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "df61fd45-0a3b-47e3-995e-b82c8aa4e2e8",
+      "name": "Webhook Teste",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1600,
+        140
+      ],
+      "webhookId": "cp5-acoes-teste-webhook-0001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Aceita entrada tanto do Execute Workflow Trigger (passthrough: { decisao, id_decisao })\n// quanto do Webhook de teste ({ body: { decisao, id_decisao }, headers, query }).\nconst item = $input.first().json;\nconst viaWebhook = Object.prototype.hasOwnProperty.call(item, 'body');\nconst src = viaWebhook ? item.body : item;\nconst decisao = src.decisao || {};\nconst idDecisao = src.id_decisao !== undefined ? src.id_decisao : null;\n\nreturn [{\n  json: {\n    decisao,\n    id_decisao: idDecisao,\n    via_webhook: viaWebhook\n  }\n}];\n"
+      },
+      "id": "35873512-70d6-4b93-acc3-3a2b7df920e6",
+      "name": "Normalizar Entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Array.isArray($json.decisao.acoes_previstas) && $json.decisao.acoes_previstas.includes('TELEGRAM') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f6b66b2e-4058-4bd3-b319-44d5bbcd78b5",
+      "name": "Tem TELEGRAM",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1120,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Array.isArray($json.decisao.acoes_previstas) && $json.decisao.acoes_previstas.includes('EMAIL') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1bb3d191-769b-47d0-9234-234e80ef4694",
+      "name": "Tem EMAIL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Array.isArray($json.decisao.acoes_previstas) && $json.decisao.acoes_previstas.includes('TRELLO') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14f49810-4ff2-4c61-aa2b-38f980838661",
+      "name": "Tem TRELLO",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1120,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Rótulos e emojis copiados literalmente de config/limiares.json::status.rotulos\n// (não lidos em runtime — ver desvio documentado no relatório de entrega do T08).\nconst ROTULOS = { NORMAL: 'NORMAL', ATENCAO: 'ATEN\\u00c7\\u00c3O', CRITICO: 'CR\\u00cdTICO' };\nconst EMOJIS = { NORMAL: '\\ud83d\\udfe2', ATENCAO: '\\ud83d\\udfe1', CRITICO: '\\ud83d\\udd34' };\nconst NOMES_CANAL = { TELEGRAM: 'Telegram', EMAIL: 'E-mail', TRELLO: 'OS no Trello' };\n\n// Enviado com parse_mode HTML: todo texto vindo da decisão é escapado\n// (MOTOR_01 quebraria o parse em Markdown por causa do '_').\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst d = $json.decisao;\nconst idDecisao = $json.id_decisao;\nconst statusFinal = d.status_final;\nconst rotulo = ROTULOS[statusFinal] || statusFinal;\nconst emoji = EMOJIS[statusFinal] || '';\n\nconst acoes = Array.isArray(d.acoes_previstas) ? d.acoes_previstas : [];\nconst acoesTexto = acoes.map((c) => NOMES_CANAL[c] || c).join(' + ');\n\nconst linhas = [];\nlinhas.push(`${emoji} <b>${rotulo} \\u2014 ${esc(d.id_maquina)}</b>`);\nif (d.resumo_operador) linhas.push(esc(d.resumo_operador));\nif (acoesTexto) linhas.push(`A\\u00e7\\u00f5es: ${acoesTexto}`);\n\nif (d.requer_humano) {\n  linhas.push('\\ud83d\\udc64 Verifica\\u00e7\\u00e3o humana necess\\u00e1ria');\n  const motivo = (d.justificativa || '').trim();\n  if (motivo) {\n    const motivoCurto = motivo.length > 180 ? motivo.slice(0, 177) + '...' : motivo;\n    linhas.push(`Motivo: ${esc(motivoCurto)}`);\n  }\n}\n\nlet hh = '--';\nlet mm = '--';\nif (d.ts) {\n  const dt = new Date(d.ts);\n  if (!isNaN(dt.getTime())) {\n    hh = String(dt.getHours()).padStart(2, '0');\n    mm = String(dt.getMinutes()).padStart(2, '0');\n  }\n}\nlinhas.push(`Decis\\u00e3o #${idDecisao} \\u00b7 ${hh}:${mm}`);\n\nconst mensagem = linhas.filter((l) => l !== undefined && l !== null && l !== '').join('\\n');\n\nreturn [{ json: { ...$json, mensagem_telegram: mensagem } }];\n"
+      },
+      "id": "394f7219-3e68-4e09-a292-d78a9b5220fe",
+      "name": "Render Telegram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Relatório HTML do e-mail (CRÍTICO). Deve renderizar bem mesmo com\n// decisao.especialistas todos null (fase sem LLM).\nconst ROTULOS = { NORMAL: 'NORMAL', ATENCAO: 'ATEN\\u00c7\\u00c3O', CRITICO: 'CR\\u00cdTICO' };\nconst NOMES_ESPECIALISTAS = { manutencao: 'Manuten\\u00e7\\u00e3o', producao: 'Produ\\u00e7\\u00e3o', energia: 'Energia' };\n\nconst d = $json.decisao;\nconst idDecisao = $json.id_decisao;\nconst rotulo = ROTULOS[d.status_final] || d.status_final;\n\nfunction esc(s) {\n  if (s === null || s === undefined) return '';\n  return String(s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\nconst especialistas = d.especialistas || {};\n\nfunction achadosRows(parecer) {\n  if (!parecer || !Array.isArray(parecer.achados) || parecer.achados.length === 0) {\n    return '<tr><td colspan=\"4\" style=\"padding:6px;color:#777;\">Sem grandezas registradas.</td></tr>';\n  }\n  return parecer.achados.map((a) => `\n    <tr>\n      <td style=\"padding:6px;border-bottom:1px solid #eee;\">${esc(a.grandeza)}</td>\n      <td style=\"padding:6px;border-bottom:1px solid #eee;\">${a.valor === null || a.valor === undefined ? '-' : esc(a.valor)}</td>\n      <td style=\"padding:6px;border-bottom:1px solid #eee;\">${esc(a.status)}</td>\n      <td style=\"padding:6px;border-bottom:1px solid #eee;\">${esc(a.observacao)}</td>\n    </tr>`).join('');\n}\n\nfunction blocoParecer(chave) {\n  const parecer = especialistas[chave];\n  const titulo = NOMES_ESPECIALISTAS[chave];\n  if (!parecer) {\n    return `<h3 style=\"margin:16px 0 6px;\">${titulo}</h3><p style=\"color:#777;margin:0 0 12px;\">Parecer n\\u00e3o dispon\\u00edvel (LLM n\\u00e3o consultado ou falhou).</p>`;\n  }\n  return `\n    <h3 style=\"margin:16px 0 6px;\">${titulo} \\u2014 <span style=\"font-weight:normal;\">${esc(parecer.status)}</span></h3>\n    <table style=\"border-collapse:collapse;width:100%;font-size:13px;margin-bottom:8px;\">\n      <thead><tr style=\"background:#f5f5f5;\">\n        <th style=\"text-align:left;padding:6px;\">Grandeza</th>\n        <th style=\"text-align:left;padding:6px;\">Valor</th>\n        <th style=\"text-align:left;padding:6px;\">Status</th>\n        <th style=\"text-align:left;padding:6px;\">Observa\\u00e7\\u00e3o</th>\n      </tr></thead>\n      <tbody>${achadosRows(parecer)}</tbody>\n    </table>\n    <p style=\"margin:0 0 4px;\"><strong>Recomenda\\u00e7\\u00e3o:</strong> ${esc(parecer.recomendacao || '-')}</p>\n    <p style=\"margin:0;color:#555;font-size:12px;\">Confian\\u00e7a: ${esc(parecer.confianca || '-')} \\u00b7 Dados insuficientes: ${parecer.dados_insuficientes ? 'sim' : 'n\\u00e3o'}</p>\n  `;\n}\n\nconst html = `<!doctype html>\n<html lang=\"pt-BR\"><head><meta charset=\"utf-8\"></head>\n<body style=\"font-family:Arial,Helvetica,sans-serif;color:#222;max-width:640px;margin:0 auto;padding:16px;\">\n  <h2 style=\"margin:0 0 4px;\">[CP5] ${esc(rotulo)} \\u2014 ${esc(d.id_maquina)}</h2>\n  <p style=\"margin:0 0 16px;color:#555;\">Decis\\u00e3o #${esc(idDecisao)} \\u00b7 ${esc(d.ts)}</p>\n\n  <table style=\"border-collapse:collapse;margin-bottom:16px;font-size:13px;\">\n    <tr><td style=\"padding:4px 12px 4px 0;color:#555;\">Status guardrail</td><td style=\"padding:4px;\"><strong>${esc(d.status_guardrail)}</strong></td></tr>\n    <tr><td style=\"padding:4px 12px 4px 0;color:#555;\">Status LLM</td><td style=\"padding:4px;\"><strong>${d.status_llm === null || d.status_llm === undefined ? 'n\\u00e3o consultado' : esc(d.status_llm)}</strong></td></tr>\n    <tr><td style=\"padding:4px 12px 4px 0;color:#555;\">Status final</td><td style=\"padding:4px;\"><strong>${esc(rotulo)}</strong></td></tr>\n    <tr><td style=\"padding:4px 12px 4px 0;color:#555;\">Requer verifica\\u00e7\\u00e3o humana</td><td style=\"padding:4px;\"><strong>${d.requer_humano ? 'sim' : 'n\\u00e3o'}</strong></td></tr>\n  </table>\n\n  <h3 style=\"margin:0 0 6px;\">Resumo</h3>\n  <p style=\"margin:0 0 16px;\">${esc(d.resumo_operador)}</p>\n\n  <h3 style=\"margin:0 0 6px;\">Justificativa</h3>\n  <p style=\"margin:0 0 16px;white-space:pre-wrap;\">${esc(d.justificativa)}</p>\n\n  <h3 style=\"margin:16px 0 6px;border-top:1px solid #ddd;padding-top:12px;\">Pareceres dos especialistas</h3>\n  ${blocoParecer('manutencao')}\n  ${blocoParecer('producao')}\n  ${blocoParecer('energia')}\n\n  <p style=\"margin-top:24px;padding-top:12px;border-top:1px solid #ddd;color:#888;font-size:11px;\">\n    Relat\\u00f3rio gerado automaticamente \\u2014 decis\\u00e3o final sob responsabilidade da equipe de manuten\\u00e7\\u00e3o.\n  </p>\n</body></html>`;\n\nconst assunto = `[CP5][${rotulo}] ${d.id_maquina} \\u2014 Relat\\u00f3rio de diagn\\u00f3stico #${idDecisao}`;\n\nreturn [{ json: { ...$json, assunto_email: assunto, html_email: html } }];\n"
+      },
+      "id": "32bb9d7a-1b8c-4a8f-bf8c-a766a3e09644",
+      "name": "Render Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Card de ordem de servi\\u00e7o do Trello (CR\\u00cdTICO). requer_humano => sem TRELLO\n// j\\u00e1 vem garantido por decisao.acoes_previstas (n\\u00e3o recalculado aqui).\nconst NOMES_ESPECIALISTAS = { manutencao: 'Manuten\\u00e7\\u00e3o', producao: 'Produ\\u00e7\\u00e3o', energia: 'Energia' };\n\nconst d = $json.decisao;\nconst idDecisao = $json.id_decisao;\n\nconst especialistas = d.especialistas || {};\n\nfunction evidenciasParecer(chave) {\n  const p = especialistas[chave];\n  const titulo = NOMES_ESPECIALISTAS[chave];\n  if (!p) return `**${titulo}:** parecer n\\u00e3o dispon\\u00edvel.`;\n  const achados = Array.isArray(p.achados) && p.achados.length\n    ? p.achados.map((a) => `  - ${a.grandeza}: ${a.valor === null || a.valor === undefined ? '-' : a.valor} (${a.status}) \\u2014 ${a.observacao || ''}`).join('\\n')\n    : '  - sem grandezas registradas.';\n  return `**${titulo}** (${p.status}):\\n${achados}`;\n}\n\nconst titulo = `[ALTA] Inspe\\u00e7\\u00e3o urgente \\u2014 ${d.id_maquina} (#${idDecisao})`;\n\nconst descricao = `### Resumo\n${d.resumo_operador || '-'}\n\n### Status\n- Guardrail: ${d.status_guardrail}\n- LLM: ${d.status_llm === null || d.status_llm === undefined ? 'n\\u00e3o consultado' : d.status_llm}\n- Final: **${d.status_final}**\n- Requer verifica\\u00e7\\u00e3o humana: ${d.requer_humano ? 'sim' : 'n\\u00e3o'}\n\n### Evid\\u00eancias\n${evidenciasParecer('manutencao')}\n\n${evidenciasParecer('producao')}\n\n${evidenciasParecer('energia')}\n\n### Justificativa\n${d.justificativa || '-'}\n\n### Checklist sugerido\n- [ ] Confirmar leitura no painel local da m\\u00e1quina ${d.id_maquina}\n- [ ] Inspecionar visualmente motor/rolamentos/ventila\\u00e7\\u00e3o\n- [ ] Verificar quadro el\\u00e9trico e conex\\u00f5es\n- [ ] Registrar a\\u00e7\\u00e3o tomada e hor\\u00e1rio\n- [ ] Encerrar ordem de servi\\u00e7o ap\\u00f3s normaliza\\u00e7\\u00e3o\n`;\n\nreturn [{ json: { ...$json, titulo_trello: titulo, descricao_trello: descricao } }];\n"
+      },
+      "id": "231fcc60-8ebc-4c7b-b159-2f729c349f37",
+      "name": "Render Trello",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $env.DRY_RUN }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6d16623b-cff4-4613-9148-09a2e4e938ae",
+      "name": "DRY_RUN Telegram",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -660,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $env.DRY_RUN }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bdb9770a-a71c-4eff-b793-7f548719a7c9",
+      "name": "DRY_RUN Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $env.DRY_RUN }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "409b9e14-266c-4ec6-8911-0d24c74df387",
+      "name": "DRY_RUN Trello",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -660,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: {\n  id_decisao: $json.id_decisao,\n  canal: 'TELEGRAM',\n  dry_run: 1,\n  destino: $env.TELEGRAM_CHAT_ID,\n  conteudo: JSON.stringify({ text: $json.mensagem_telegram }),\n  sucesso: 1,\n  erro: null\n} }];\n"
+      },
+      "id": "efe9f695-cf99-44c1-8531-417122c97c56",
+      "name": "Preparar Log Telegram DRY_RUN",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: {\n  id_decisao: $json.id_decisao,\n  canal: 'EMAIL',\n  dry_run: 1,\n  destino: $env.EMAIL_DESTINO,\n  conteudo: JSON.stringify({ assunto: $json.assunto_email, html: $json.html_email }),\n  sucesso: 1,\n  erro: null\n} }];\n"
+      },
+      "id": "518974d6-a92c-428f-a263-6af158e7760b",
+      "name": "Preparar Log Email DRY_RUN",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: {\n  id_decisao: $json.id_decisao,\n  canal: 'TRELLO',\n  dry_run: 1,\n  destino: $env.TRELLO_LIST_ID,\n  conteudo: JSON.stringify({ nome: $json.titulo_trello, descricao: $json.descricao_trello }),\n  sucesso: 1,\n  erro: null\n} }];\n"
+      },
+      "id": "4ee98210-1f3b-4e77-be01-90e7f24076af",
+      "name": "Preparar Log Trello DRY_RUN",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.mensagem_telegram }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "e64d405b-8569-4bf8-84cc-bcb22dec39b3",
+      "name": "Enviar Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -420,
+        -700
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "cred-telegram-cp5",
+          "name": "Telegram CP5"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "={{ $env.EMAIL_REMETENTE }}",
+        "toEmail": "={{ $env.EMAIL_DESTINO }}",
+        "subject": "={{ $json.assunto_email }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html_email }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "4b4a3c7b-cbe2-48fd-b457-4ecad18c0586",
+      "name": "Enviar Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -420,
+        -280
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "cred-smtp-gmail-cp5",
+          "name": "SMTP Gmail CP5"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "authentication": "apiKey",
+        "resource": "card",
+        "operation": "create",
+        "listId": "={{ $env.TRELLO_LIST_ID }}",
+        "name": "={{ $json.titulo_trello }}",
+        "description": "={{ $json.descricao_trello }}",
+        "additionalFields": {
+          "due": "={{ $now.plus({ hours: 24 }).toISO() }}"
+        }
+      },
+      "id": "665bc741-c740-4882-9b14-e3d8d1e3c29b",
+      "name": "Criar Card Trello",
+      "type": "n8n-nodes-base.trello",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        620
+      ],
+      "credentials": {
+        "trelloApi": {
+          "id": "cred-trello-cp5",
+          "name": "Trello CP5"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Render Telegram').first().json;\nreturn [{ json: {\n  id_decisao: ctx.id_decisao,\n  canal: 'TELEGRAM',\n  dry_run: 0,\n  destino: $env.TELEGRAM_CHAT_ID,\n  conteudo: JSON.stringify({ text: ctx.mensagem_telegram }),\n  sucesso: 1,\n  erro: null\n} }];\n"
+      },
+      "id": "c9a1479d-d390-48b5-beaf-85eeae89e4d3",
+      "name": "Preparar Log Telegram OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -820
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Render Telegram').first().json;\nreturn [{ json: {\n  id_decisao: ctx.id_decisao,\n  canal: 'TELEGRAM',\n  dry_run: 0,\n  destino: $env.TELEGRAM_CHAT_ID,\n  conteudo: JSON.stringify({ text: ctx.mensagem_telegram }),\n  sucesso: 0,\n  erro: (typeof $json.error === 'string' ? $json.error : ($json.error && ($json.error.message || JSON.stringify($json.error))) || 'Erro desconhecido ao enviar')\n} }];\n"
+      },
+      "id": "da72589c-d6d7-412e-b246-080d615c0015",
+      "name": "Preparar Log Telegram Erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Render Email').first().json;\nreturn [{ json: {\n  id_decisao: ctx.id_decisao,\n  canal: 'EMAIL',\n  dry_run: 0,\n  destino: $env.EMAIL_DESTINO,\n  conteudo: JSON.stringify({ assunto: ctx.assunto_email, html: ctx.html_email }),\n  sucesso: 1,\n  erro: null\n} }];\n"
+      },
+      "id": "ad5c6aa7-05ff-4c73-af09-89a1414a42d5",
+      "name": "Preparar Log Email OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Render Email').first().json;\nreturn [{ json: {\n  id_decisao: ctx.id_decisao,\n  canal: 'EMAIL',\n  dry_run: 0,\n  destino: $env.EMAIL_DESTINO,\n  conteudo: JSON.stringify({ assunto: ctx.assunto_email, html: ctx.html_email }),\n  sucesso: 0,\n  erro: (typeof $json.error === 'string' ? $json.error : ($json.error && ($json.error.message || JSON.stringify($json.error))) || 'Erro desconhecido ao enviar')\n} }];\n"
+      },
+      "id": "e27e4361-c207-4c82-baaa-3b911a756059",
+      "name": "Preparar Log Email Erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Render Trello').first().json;\nreturn [{ json: {\n  id_decisao: ctx.id_decisao,\n  canal: 'TRELLO',\n  dry_run: 0,\n  destino: $env.TRELLO_LIST_ID,\n  conteudo: JSON.stringify({ nome: ctx.titulo_trello, descricao: ctx.descricao_trello }),\n  sucesso: 1,\n  erro: null\n} }];\n"
+      },
+      "id": "2a1e698b-6104-40e4-9587-c2d5704316f2",
+      "name": "Preparar Log Trello OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Render Trello').first().json;\nreturn [{ json: {\n  id_decisao: ctx.id_decisao,\n  canal: 'TRELLO',\n  dry_run: 0,\n  destino: $env.TRELLO_LIST_ID,\n  conteudo: JSON.stringify({ nome: ctx.titulo_trello, descricao: ctx.descricao_trello }),\n  sucesso: 0,\n  erro: (typeof $json.error === 'string' ? $json.error : ($json.error && ($json.error.message || JSON.stringify($json.error))) || 'Erro desconhecido ao enviar')\n} }];\n"
+      },
+      "id": "3722b573-8f95-4d9f-bbc2-aa7f42bc6901",
+      "name": "Preparar Log Trello Erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "acoes_log"
+        },
+        "dataMode": "autoMapInputData",
+        "options": {
+          "replaceEmptyStrings": false
+        }
+      },
+      "id": "9e0f1447-8354-49fa-b49f-47282c21c1af",
+      "name": "Inserir acoes_log",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        120,
+        0
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "cred-mysql-cp5",
+          "name": "MySQL CP5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Fan-in: recebe 1 item \"contexto\" de Normalizar Entrada (sempre) e, quando\n// aplicável, 1 item por canal efetivamente executado (com campo \"canal\").\n// Ramos de canal não disparados (fora de acoes_previstas) chegam \"pulados\"\n// (0 itens), então este nó roda mesmo com acoes_previstas = [] (status NORMAL).\nconst items = $input.all();\nconst contexto = items.find((it) => it.json.canal === undefined);\nconst acoesExecutadas = items\n  .filter((it) => it.json.canal !== undefined)\n  .map((it) => ({\n    canal: it.json.canal,\n    dry_run: !!it.json.dry_run,\n    sucesso: !!it.json.sucesso\n  }));\n\nconst idDecisao = contexto ? contexto.json.id_decisao : (items[0] ? items[0].json.id_decisao : null);\n\nreturn [{ json: { id_decisao: idDecisao, acoes_executadas: acoesExecutadas } }];\n"
+      },
+      "id": "1e5a0fbf-51b7-40fb-af97-71abab532cf0",
+      "name": "Consolidar Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $('Normalizar Entrada').first().json.via_webhook }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8aeb12f0-126b-491e-8279-c13e58c3d188",
+      "name": "E Webhook",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "bc9ea6bb-0dbe-40e9-80c8-26cbeef6ed2d",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        900,
+        -140
+      ]
+    }
+  ],
+  "connections": {
+    "Executado por Outro Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Teste": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Entrada": {
+      "main": [
+        [
+          {
+            "node": "Tem TELEGRAM",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tem EMAIL",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tem TRELLO",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem TELEGRAM": {
+      "main": [
+        [
+          {
+            "node": "Render Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem EMAIL": {
+      "main": [
+        [
+          {
+            "node": "Render Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem TRELLO": {
+      "main": [
+        [
+          {
+            "node": "Render Trello",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Telegram": {
+      "main": [
+        [
+          {
+            "node": "DRY_RUN Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Email": {
+      "main": [
+        [
+          {
+            "node": "DRY_RUN Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Trello": {
+      "main": [
+        [
+          {
+            "node": "DRY_RUN Trello",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DRY_RUN Telegram": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Telegram DRY_RUN",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DRY_RUN Email": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Email DRY_RUN",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DRY_RUN Trello": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Trello DRY_RUN",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Criar Card Trello",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Telegram": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Telegram OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar Log Telegram Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Email": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Email OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar Log Email Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Card Trello": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Trello OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar Log Trello Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Telegram DRY_RUN": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Telegram OK": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Telegram Erro": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Email DRY_RUN": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Email OK": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Email Erro": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Trello DRY_RUN": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Trello OK": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Trello Erro": {
+      "main": [
+        [
+          {
+            "node": "Inserir acoes_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consolidar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar Resposta": {
+      "main": [
+        [
+          {
+            "node": "E Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E Webhook": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true
+}
