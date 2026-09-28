@@ -114,6 +114,77 @@
     seja, em 2.2+ o nome do nó no canvas *é* o nome da tool que o LLM vê —
     nomeie o nó com cuidado (ex.: `Consultar_Historico`, sem espaços/acentos
     é mais seguro para uso por tool-calling).
+15. **`executeWorkflowTrigger` com `inputSource: "workflowInputs"` (achado
+    T09, para sub-workflows que o `toolWorkflow` deve expor como tool com
+    PARÂMETROS NOMEADOS, não um único `payload` string) — lido do
+    `NodeTypeDescription` real do pacote (`n8n-nodes-base`), não só do
+    código-fonte do executor:**
+    ```
+    "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.2
+    "parameters": {
+      "inputSource": "workflowInputs",
+      "workflowInputs": {
+        "values": [
+          { "name": "id_maquina", "type": "string" },
+          { "name": "grandeza", "type": "string" },
+          { "name": "janela_min", "type": "number" }
+        ]
+      }
+    }
+    ```
+    `type` de cada campo ∈ `any|string|number|boolean|array|object` (mesma
+    lista do `assignmentCollection` do Set). Não existe campo de "valor
+    padrão" aqui — quem chama (`toolWorkflow`) sempre manda os 3 campos; um
+    default (ex. `janela_min = 120` quando ausente) precisa ser aplicado no
+    primeiro nó Code do sub-workflow, não na declaração do Trigger. Com esse
+    modo, o Trigger entrega os campos **diretamente no topo do `$json`**
+    (`$json.id_maquina`, `$json.grandeza`, `$json.janela_min`), sem
+    wrapper — diferente do modo `passthrough` (usado no WF-10), que só faz
+    sentido para 1 payload livre.
+    No lado do `toolWorkflow` que chama esse sub-workflow, `workflowInputs`
+    (tipo `resourceMapper`) aceita quantos campos nomeados o sub-workflow
+    declarar, um `$fromAI(...)` por campo (extensão do exemplo de 1 campo já
+    documentado em §3.23):
+    ```
+    "workflowInputs": {
+      "mappingMode": "defineBelow",
+      "value": {
+        "id_maquina": "={{ $fromAI('id_maquina', 'ID da máquina, ex. MOTOR_01', 'string') }}",
+        "grandeza": "={{ $fromAI('grandeza', 'temperatura|vibracao|corrente|taxa_producao|fator_potencia|eficiencia', 'string') }}",
+        "janela_min": "={{ $fromAI('janela_min', 'Janela em minutos (padrão 120)', 'number') }}"
+      }
+    }
+    ```
+    **Validado ao vivo (T09):** `wf40_tool_historico.json` importado, publicado
+    e chamado via o webhook de teste do próprio workflow (mesmo caminho de
+    código que o Trigger) — ver `tests/smoke_tool_historico.js`.
+16. **`respondToWebhook` (typeVersion ≥ 1.1) só valida a PRESENÇA ESTÁTICA de
+    um nó Webhook/Form Trigger/Chat Trigger/Wait em algum lugar ANCESTRAL do
+    grafo (`getParentNodes`), não se a execução ATUAL veio de um webhook**
+    (lido em `RespondToWebhook.node.js::execute`, dentro do container). Ou
+    seja, um workflow com dois pontos de entrada (ex.: `executeWorkflowTrigger`
+    para uso real como tool + `webhook` só para teste, caso de
+    `wf40_tool_historico.json`) **não pode ligar os dois caminhos direto num
+    nó `respondToWebhook` compartilhado**: se a execução atual veio do
+    Trigger (não do Webhook), o nó ainda assim tenta `this.sendResponse(...)`
+    contra uma resposta HTTP que não existe, o que provavelmente quebra a
+    execução da tool (não testado até falhar de propósito — o risco foi
+    evitado por desenho). **Correção usada em `wf40_tool_historico.json`:**
+    carregar uma flag (`via_webhook: true|false`) desde o nó adaptador de
+    cada entrada, e só rotear para `respondToWebhook` com um nó `If` checando
+    essa flag; o caminho `false` (Trigger) termina num Code node comum
+    (`return [{ json: resultado }];`), nunca tocando `respondToWebhook`.
+17. **Nó MySQL (`typeVersion 2.5`) aceita o MESMO placeholder `$N` reaproveitado
+    em mais de uma posição da query** (ex.: `$1` usado tanto no `SELECT` de
+    exibição quanto, via `$5`, repetido dentro do `WHERE`) — confirmado lendo
+    `MySql/v2/helpers/utils.js::extractValuesFromMatches`/`processParameterReplacements`:
+    os valores de bind são extraídos ordenando por **número** do placeholder
+    (`$1, $2, $3...`), não pela ordem de ocorrência no texto, então a query
+    só funciona de forma previsível se `$1, $2, ..., $N` aparecerem em ORDEM
+    CRESCENTE no texto (mesmo que `$N` se repita); usado em
+    `wf40_tool_historico.json` para reaproveitar `id_maquina`, `grandeza` e
+    `janela_min` (cada um citado 2x na query) sem duplicar parâmetros fora de
+    ordem.
 
 ## 3. Nós — `type` exato, `typeVersion` máxima e parâmetros principais
 

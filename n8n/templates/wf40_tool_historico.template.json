@@ -1,0 +1,238 @@
+{
+  "id": "wf-cp5-40-tool-historico",
+  "name": "WF-40 Tool: consultar_historico",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            { "name": "id_maquina", "type": "string" },
+            { "name": "grandeza", "type": "string" },
+            { "name": "janela_min", "type": "number" }
+          ]
+        }
+      },
+      "id": "c410000-0000-4000-8000-000000000001",
+      "name": "Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [-1780, -80]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cp5/tool-historico-teste",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c410000-0000-4000-8000-000000000002",
+      "name": "Webhook Teste",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "webhookId": "c4200000-0000-4000-8000-000000000099",
+      "position": [-1780, 220]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Adaptador do Trigger (uso real: chamado via toolWorkflow pelos especialistas,\n// T11). Com inputSource=\"workflowInputs\" (3 campos declarados), o Trigger já\n// entrega id_maquina/grandeza/janela_min como campos de topo -- este nó só\n// uniformiza os nomes (\"_bruto\") para o nó \"Validar Entrada\", que é\n// compartilhado com o caminho do Webhook de teste, e marca via_webhook=false.\nconst t = $('Trigger').first().json;\nreturn [{\n  json: {\n    id_maquina_bruto: t.id_maquina,\n    grandeza_bruto: t.grandeza,\n    janela_min_bruto: t.janela_min,\n    via_webhook: false,\n  },\n}];"
+      },
+      "id": "c410000-0000-4000-8000-000000000003",
+      "name": "Preparar Entrada (Trigger)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1560, -80]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Adaptador do Webhook de TESTE (n8n/nodes-catalog.md documenta este webhook\n// como \"só teste\": permite chamar exatamente o mesmo caminho do tool sem\n// precisar de um AI Agent/toolWorkflow no meio, útil para tests/smoke_*.js).\n// Body esperado: {id_maquina, grandeza, janela_min}.\nconst w = $('Webhook Teste').first().json;\nconst body = (w.body && typeof w.body === 'object' && !Array.isArray(w.body)) ? w.body : {};\nreturn [{\n  json: {\n    id_maquina_bruto: body.id_maquina,\n    grandeza_bruto: body.grandeza,\n    janela_min_bruto: body.janela_min,\n    via_webhook: true,\n  },\n}];"
+      },
+      "id": "c410000-0000-4000-8000-000000000004",
+      "name": "Preparar Entrada (Webhook)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1560, 220]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Nó compartilhado pelos dois caminhos de entrada (Trigger e Webhook de\n// teste). NUNCA consulta o banco se a entrada for inválida -- é a defesa\n// contra prompt injection / SQL injection via o parâmetro \"grandeza\" (ex.:\n// \"x; DROP TABLE leituras\"), que não bate com a lista fixa depois de\n// normalizado e cai direto em ok:false, sem passar pelo nó MySQL.\n\nconst GRANDEZAS_VALIDAS = ['temperatura', 'vibracao', 'corrente', 'taxa_producao', 'fator_potencia', 'eficiencia'];\nconst ID_REGEX = /^[A-Z0-9_]{3,32}$/; // igual a config/limiares.json::id_maquina_regex\n\n// Normaliza acentos/maiúsculas/espaços: \"Vibração\" -> \"vibracao\", \"Fator de Potência\" -> \"fator_de_potencia\".\n// (cobre o caso pedido no ticket -- \"Vibração\" -> \"vibracao\" -- sem exigir do\n// chamador que já mande a grafia exata usada no banco.)\nfunction normalizarGrandeza(raw) {\n  if (typeof raw !== 'string') return '';\n  return raw\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .trim()\n    .toLowerCase()\n    .replace(/\\s+/g, '_');\n}\n\nconst entrada = $input.first().json;\nconst via_webhook = !!entrada.via_webhook;\n\nconst idBruto = entrada.id_maquina_bruto;\nconst grandezaNormalizada = normalizarGrandeza(entrada.grandeza_bruto);\n\nconst erros = [];\n\nif (typeof idBruto !== 'string' || !ID_REGEX.test(idBruto)) {\n  erros.push(`id_maquina inválido: \"${String(entrada.id_maquina_bruto)}\". Use letras maiúsculas, números e \"_\", de 3 a 32 caracteres (ex.: MOTOR_01).`);\n}\n\nif (!GRANDEZAS_VALIDAS.includes(grandezaNormalizada)) {\n  erros.push(`grandeza inválida: \"${String(entrada.grandeza_bruto)}\". Use uma das grandezas suportadas (veja grandezas_validas).`);\n}\n\n// janela_min: ausente/vazio -> default 120. Presente -> precisa ser inteiro 10..1440.\nlet janela_min = 120;\nconst janelaBruta = entrada.janela_min_bruto;\nconst janelaAusente = janelaBruta === undefined || janelaBruta === null || janelaBruta === '';\nif (!janelaAusente) {\n  const n = Number(janelaBruta);\n  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 10 || n > 1440) {\n    erros.push(`janela_min inválida: \"${String(janelaBruta)}\". Use um número inteiro de minutos entre 10 e 1440 (padrão 120).`);\n  } else {\n    janela_min = n;\n  }\n}\n\nif (erros.length) {\n  return [{\n    json: {\n      ok: false,\n      erro: erros.join(' '),\n      grandezas_validas: GRANDEZAS_VALIDAS,\n      via_webhook,\n    },\n  }];\n}\n\nreturn [{\n  json: {\n    ok: true,\n    id_maquina: idBruto,\n    grandeza: grandezaNormalizada,\n    janela_min,\n    via_webhook,\n  },\n}];"
+      },
+      "id": "c410000-0000-4000-8000-000000000005",
+      "name": "Validar Entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1340, 70]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c410000-0000-4000-8000-000000000006",
+      "name": "Entrada Valida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-1120, 70]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  t.id_maquina, t.grandeza, t.janela_min, t.amostras, t.media, t.desvio_padrao,\n  t.minimo, t.maximo, t.primeiro, t.ultimo, t.variacao_percentual\nFROM (\n  SELECT\n    $1 AS id_maquina,\n    $2 AS grandeza,\n    $3 AS janela_min,\n    COUNT(*) AS amostras,\n    ROUND(AVG(s.valor), 4) AS media,\n    ROUND(STDDEV_SAMP(s.valor), 4) AS desvio_padrao,\n    MIN(s.valor) AS minimo,\n    MAX(s.valor) AS maximo,\n    MAX(CASE WHEN s.rn_asc = 1 THEN s.valor END) AS primeiro,\n    MAX(CASE WHEN s.rn_desc = 1 THEN s.valor END) AS ultimo,\n    ROUND(\n      CASE\n        WHEN AVG(CASE WHEN s.terco = 1 THEN s.valor END) IS NULL\n          OR AVG(CASE WHEN s.terco = 1 THEN s.valor END) = 0 THEN NULL\n        ELSE (AVG(CASE WHEN s.terco = 3 THEN s.valor END) - AVG(CASE WHEN s.terco = 1 THEN s.valor END))\n             / AVG(CASE WHEN s.terco = 1 THEN s.valor END) * 100\n      END, 4) AS variacao_percentual\n  FROM (\n    SELECT\n      valor,\n      ROW_NUMBER() OVER (ORDER BY ts ASC) AS rn_asc,\n      ROW_NUMBER() OVER (ORDER BY ts DESC) AS rn_desc,\n      NTILE(3) OVER (ORDER BY ts ASC) AS terco\n    FROM (\n      SELECT\n        ts,\n        CASE $4\n          WHEN 'temperatura' THEN temperatura\n          WHEN 'vibracao' THEN vibracao\n          WHEN 'corrente' THEN corrente\n          WHEN 'taxa_producao' THEN taxa_producao\n          WHEN 'fator_potencia' THEN fator_potencia\n          WHEN 'eficiencia' THEN eficiencia\n        END AS valor\n      FROM leituras\n      WHERE id_maquina = $5\n        AND ts >= NOW() - INTERVAL $6 MINUTE\n    ) base\n    WHERE valor IS NOT NULL\n  ) s\n) t",
+        "options": {
+          "queryReplacement": "={{ [$json.id_maquina, $json.grandeza, $json.janela_min, $json.grandeza, $json.id_maquina, $json.janela_min] }}"
+        }
+      },
+      "id": "c410000-0000-4000-8000-000000000007",
+      "name": "Buscar Historico",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "alwaysOutputData": true,
+      "position": [-900, -60],
+      "credentials": {
+        "mySql": { "id": "cred-mysql-cp5", "name": "MySQL CP5" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/files/config/limiares.json",
+        "options": { "dataPropertyName": "data" }
+      },
+      "id": "c410000-0000-4000-8000-000000000008",
+      "name": "Ler Limiares",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [-680, -60]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Lê config/limiares.json::tendencia (fonte única dos limiares -- não\n// duplicar os números 15/6 aqui \"a seco\"; se um dia mudarem, este nó já lê o\n// valor novo sem precisar editar workflow). Fallback local só existe para o\n// caso (não esperado) de o arquivo não abrir -- nunca deixa a tool quebrar\n// por causa disso.\nlet limiares;\ntry {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  limiares = JSON.parse(buf.toString('utf8'));\n} catch (e) {\n  limiares = { tendencia: { variacao_percentual_para_escalar: 15, amostras_minimas: 6 } };\n}\nconst limiarEscalar = (limiares.tendencia && limiares.tendencia.variacao_percentual_para_escalar) ?? 15;\nconst amostrasMinimas = (limiares.tendencia && limiares.tendencia.amostras_minimas) ?? 6;\n\nfunction round2(n) {\n  return Math.round(n * 100) / 100;\n}\nfunction num2(v) {\n  return (v === null || v === undefined) ? null : round2(Number(v));\n}\n\nconst row = $('Buscar Historico').first().json;\nconst entrada = $('Validar Entrada').first().json;\n\nconst amostras = Number(row.amostras) || 0;\nconst media = num2(row.media);\nconst desvio_padrao = num2(row.desvio_padrao);\nconst minimo = num2(row.minimo);\nconst maximo = num2(row.maximo);\nconst primeiro = num2(row.primeiro);\nconst ultimo = num2(row.ultimo);\nconst variacao_percentual = num2(row.variacao_percentual);\n\nconst suficiente = amostras >= amostrasMinimas;\n\nlet tendencia = 'estavel';\nif (variacao_percentual !== null) {\n  if (variacao_percentual >= 5) tendencia = 'alta';\n  else if (variacao_percentual <= -5) tendencia = 'baixa';\n}\n\nlet interpretacao;\nif (amostras === 0) {\n  interpretacao = 'Sem histórico na janela.';\n} else if (!suficiente) {\n  interpretacao = `Variação de ${variacao_percentual === null ? 'n/d' : variacao_percentual + ' %'} em ${entrada.janela_min} min, mas apenas ${amostras} amostra(s) (mínimo ${amostrasMinimas} para avaliar tendência).`;\n} else if (tendencia === 'estavel') {\n  interpretacao = `Estável: variação de ${variacao_percentual} % em ${entrada.janela_min} min (${amostras} amostras), abaixo do limiar de ${limiarEscalar} % para escalar severidade.`;\n} else {\n  const rotulo = tendencia === 'alta' ? 'Alta' : 'Queda';\n  const varAbs = Math.abs(variacao_percentual);\n  const atingeLimiar = varAbs >= limiarEscalar;\n  interpretacao = `${rotulo} de ${varAbs} % em ${entrada.janela_min} min (${amostras} amostras): ` +\n    (atingeLimiar\n      ? `tendência de ${tendencia} significativa (≥ ${limiarEscalar} %).`\n      : `variação abaixo do limiar de ${limiarEscalar} % para escalar severidade.`);\n}\n\nconst resultado = {\n  ok: true,\n  id_maquina: entrada.id_maquina,\n  grandeza: entrada.grandeza,\n  janela_min: entrada.janela_min,\n  amostras,\n  media,\n  desvio_padrao,\n  minimo,\n  maximo,\n  primeiro,\n  ultimo,\n  variacao_percentual,\n  tendencia,\n  suficiente_para_tendencia: suficiente,\n  interpretacao,\n};\n\nreturn [{ json: { via_webhook: entrada.via_webhook, resultado } }];"
+      },
+      "id": "c410000-0000-4000-8000-000000000009",
+      "name": "Formatar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-460, -60]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Entrada inválida: NUNCA consultou o banco (ver \"Validar Entrada\"). Devolve\n// um erro claro para o LLM decidir o que fazer (ex.: pedir ajuda humana),\n// nunca inventa números.\nconst entrada = $input.first().json;\nconst resultado = {\n  ok: false,\n  erro: entrada.erro,\n  grandezas_validas: entrada.grandezas_validas,\n};\nreturn [{ json: { via_webhook: entrada.via_webhook, resultado } }];"
+      },
+      "id": "c410000-0000-4000-8000-000000000010",
+      "name": "Montar Resposta Invalida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-900, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.via_webhook }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c410000-0000-4000-8000-000000000011",
+      "name": "Via Webhook?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-240, 70]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.resultado }}",
+        "options": {}
+      },
+      "id": "c410000-0000-4000-8000-000000000012",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [-20, -20]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Caminho real (chamado como tool por um AI Agent via toolWorkflow, T11):\n// nenhum nó de Webhook envolvido nesta execução. A saída deste nó (o objeto\n// \"resultado\", já sem o campo interno via_webhook) é o que o toolWorkflow lê\n// como retorno da tool (\"olha no último nó para a resposta\").\nreturn [{ json: $input.first().json.resultado }];"
+      },
+      "id": "c410000-0000-4000-8000-000000000013",
+      "name": "Retornar Tool",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-20, 160]
+    }
+  ],
+  "connections": {
+    "Trigger": {
+      "main": [[{ "node": "Preparar Entrada (Trigger)", "type": "main", "index": 0 }]]
+    },
+    "Webhook Teste": {
+      "main": [[{ "node": "Preparar Entrada (Webhook)", "type": "main", "index": 0 }]]
+    },
+    "Preparar Entrada (Trigger)": {
+      "main": [[{ "node": "Validar Entrada", "type": "main", "index": 0 }]]
+    },
+    "Preparar Entrada (Webhook)": {
+      "main": [[{ "node": "Validar Entrada", "type": "main", "index": 0 }]]
+    },
+    "Validar Entrada": {
+      "main": [[{ "node": "Entrada Valida?", "type": "main", "index": 0 }]]
+    },
+    "Entrada Valida?": {
+      "main": [
+        [{ "node": "Buscar Historico", "type": "main", "index": 0 }],
+        [{ "node": "Montar Resposta Invalida", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Historico": {
+      "main": [[{ "node": "Ler Limiares", "type": "main", "index": 0 }]]
+    },
+    "Ler Limiares": {
+      "main": [[{ "node": "Formatar", "type": "main", "index": 0 }]]
+    },
+    "Formatar": {
+      "main": [[{ "node": "Via Webhook?", "type": "main", "index": 0 }]]
+    },
+    "Montar Resposta Invalida": {
+      "main": [[{ "node": "Via Webhook?", "type": "main", "index": 0 }]]
+    },
+    "Via Webhook?": {
+      "main": [
+        [{ "node": "Responder Webhook", "type": "main", "index": 0 }],
+        [{ "node": "Retornar Tool", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true
+}
