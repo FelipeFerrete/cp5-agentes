@@ -23,7 +23,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Body pode ser objeto JSON (Content-Type: application/json) ou texto cru\n// (qualquer outro Content-Type / JSON inválido) -- nos dois casos repassamos\n// como está: quem decide o que fazer com string vs objeto é o WF-10\n// (\"Preparar Payload\"), não este harness.\nconst item = $input.first().json;\nconst origem = (item.query && item.query.origem) ? item.query.origem : 'webhook';\nreturn [{\n  json: {\n    payload: item.body,\n    origem,\n  },\n}];"
+        "jsCode": "// Body pode ser objeto JSON (Content-Type: application/json) ou texto cru\n// (qualquer outro Content-Type / JSON inválido) -- nos dois casos repassamos\n// como está: quem decide o que fazer com string vs objeto é o WF-10\n// (\"Preparar Payload\"), não este harness.\nconst item = $input.first().json;\nconst origem = (item.query && item.query.origem) ? item.query.origem : 'webhook';\n// ?llm=0 (ou false) => usar_llm=false: o WF-10 segue o caminho determinístico (sem supervisor LLM).\nconst llm = item.query ? item.query.llm : undefined;\nconst usar_llm = !(llm === '0' || llm === 'false');\nreturn [{\n  json: {\n    payload: item.body,\n    origem,\n    usar_llm,\n  },\n}];"
       },
       "id": "c51020000-0000-4000-8000-000000000102",
       "name": "Preparar Chamada",

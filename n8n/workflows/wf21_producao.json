@@ -146,7 +146,7 @@
     },
     {
       "parameters": {
-        "model": "={{ $env.GROQ_MODEL_ESPECIALISTA }}",
+        "model": "={{ $env.GROQ_MODEL_PRODUCAO || $env.GROQ_MODEL_ESPECIALISTA }}",
         "options": {
           "temperature": 0.1,
           "maxTokensToSample": 4096
@@ -246,7 +246,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Pós-processamento DETERMINÍSTICO (o LLM opina, o n8n garante):\n//   1) força parecer.especialista = área da variante;\n//   2) piso: status nunca abaixo de leitura.guardrail.por_especialista[área];\n//   3) meta: modelo, latência, chamadas de tool e checagem anti-alucinação.\nconst ctx = $('Validar Entrada').first().json;\nconst AREA = ctx.area;\nconst leitura = ctx.leitura;\nconst ORDEM = ['NORMAL', 'ATENCAO', 'CRITICO'];\nconst saidaAgente = $input.first().json;\n\nfunction tentaJson(v) {\n  if (typeof v !== 'string') return v;\n  try { return JSON.parse(v); } catch (x) { return v; }\n}\n// O agente devolve { output: {...parecer...}, intermediateSteps: [...] }.\nlet parecer = tentaJson(saidaAgente.output);\nif (!parecer || typeof parecer !== 'object' || Array.isArray(parecer)) {\n  return [{ json: { via_webhook: ctx.via_webhook, saida: {\n    area: AREA, parecer: null,\n    meta: { modelo: $env.GROQ_MODEL_ESPECIALISTA || null, latencia_ms: Date.now() - ctx.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, erro: 'saída do agente sem parecer estruturado' },\n  } } }];\n}\nparecer = JSON.parse(JSON.stringify(parecer));\n\n// 1) especialista forçado\nparecer.especialista = AREA;\n\n// 2) piso do guardrail\nconst piso = leitura.guardrail.por_especialista[AREA];\nlet piso_aplicado = false;\nif (ORDEM.indexOf(parecer.status) < ORDEM.indexOf(piso)) {\n  parecer.status = piso;\n  piso_aplicado = true;\n}\n\n// 3a) chamadas de tool (de intermediateSteps)\nconst passos = Array.isArray(saidaAgente.intermediateSteps) ? saidaAgente.intermediateSteps : [];\nconst tool_calls = [];\nconst permitidos = []; // números rastreáveis\n\nfunction coletar(obj) {\n  if (typeof obj === 'number' && Number.isFinite(obj)) { permitidos.push(obj); return; }\n  if (Array.isArray(obj)) { obj.forEach(coletar); return; }\n  if (obj && typeof obj === 'object') Object.values(obj).forEach(coletar);\n}\n\nfor (const p of passos) {\n  const a = (p && p.action) || {};\n  const nome = a.tool || a.name || null;\n  if (nome !== 'consultar_historico') continue;\n  let entrada = tentaJson(a.toolInput);\n  if (entrada && typeof entrada === 'object' && entrada.input !== undefined && Object.keys(entrada).length === 1) entrada = tentaJson(entrada.input);\n  let obs = tentaJson(p.observation);\n  // O agente entrega a resposta da tool como string JSON de uma LISTA de itens ([{...}]).\n  if (Array.isArray(obs) && obs.length === 1) obs = obs[0];\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.json && typeof obs.json === 'object' && Object.keys(obs).length === 1) obs = obs.json;\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.response !== undefined && Object.keys(obs).length === 1) obs = tentaJson(obs.response);\n  const chamada = {\n    tool: nome,\n    entrada: (entrada && typeof entrada === 'object') ? {\n      id_maquina: entrada.id_maquina ?? null, grandeza: entrada.grandeza ?? null, janela_min: entrada.janela_min ?? null,\n    } : { bruto: String(entrada).slice(0, 200) },\n  };\n  if (obs && typeof obs === 'object') {\n    chamada.saida = {\n      ok: obs.ok ?? null, amostras: obs.amostras ?? null, media: obs.media ?? null, desvio_padrao: obs.desvio_padrao ?? null,\n      minimo: obs.minimo ?? null, maximo: obs.maximo ?? null, primeiro: obs.primeiro ?? null, ultimo: obs.ultimo ?? null,\n      variacao_percentual: obs.variacao_percentual ?? null, tendencia: obs.tendencia ?? null,\n      suficiente_para_tendencia: obs.suficiente_para_tendencia ?? null,\n    };\n    if (obs.ok === false) chamada.saida.erro = obs.erro ?? null;\n  } else {\n    chamada.saida = { bruto: String(obs).slice(0, 300) };\n  }\n  tool_calls.push(chamada);\n  coletar(entrada);\n  coletar(obs);\n}\n\n// 3b) anti-alucinação: números citados que não existem na leitura, nominais, limites ou tools\ncoletar(leitura.valores);\ncoletar(leitura.nominais);\nconst viol = (leitura.guardrail && Array.isArray(leitura.guardrail.violacoes)) ? leitura.guardrail.violacoes : [];\nfor (const v of viol) { coletar(v.limite); coletar(v.valor); }\n\nconst rastreavel = (x) => permitidos.some((n) => Math.abs(n - x) <= 0.0100001);\nconst valores_nao_rastreaveis = [];\nconst achados = Array.isArray(parecer.achados) ? parecer.achados : [];\nachados.forEach((a, i) => {\n  if (a && typeof a.valor === 'number' && !rastreavel(a.valor)) valores_nao_rastreaveis.push({ campo: 'achados[' + i + '].valor', valor: a.valor });\n});\nif (parecer.tendencia && typeof parecer.tendencia === 'object') {\n  for (const [k, v] of Object.entries(parecer.tendencia)) {\n    if (typeof v === 'number' && !rastreavel(v)) valores_nao_rastreaveis.push({ campo: 'tendencia.' + k, valor: v });\n  }\n}\n\nconst meta = {\n  modelo: $env.GROQ_MODEL_ESPECIALISTA || null,\n  latencia_ms: Date.now() - ctx.t0,\n  tool_calls,\n  valores_nao_rastreaveis,\n  piso_aplicado,\n  erro: null,\n};\nreturn [{ json: { via_webhook: ctx.via_webhook, saida: { area: AREA, parecer, meta } } }];"
+        "jsCode": "// Pós-processamento DETERMINÍSTICO (o LLM opina, o n8n garante):\n//   1) força parecer.especialista = área da variante;\n//   2) piso: status nunca abaixo de leitura.guardrail.por_especialista[área];\n//   3) meta: modelo, latência, chamadas de tool e checagem anti-alucinação.\nconst ctx = $('Validar Entrada').first().json;\nconst AREA = ctx.area;\nconst leitura = ctx.leitura;\nconst ORDEM = ['NORMAL', 'ATENCAO', 'CRITICO'];\nconst saidaAgente = $input.first().json;\n\n// Tentativas do agente: cada falha de rate limit passou por \"Classificar Erro\" (que grava\n// tentativa = nº de tentativas já feitas); a bem-sucedida é a seguinte.\nlet tentativas = 1;\ntry {\n  const ult = $('Classificar Erro').last();\n  if (ult && ult.json && Number.isFinite(ult.json.tentativa)) tentativas = ult.json.tentativa + 1;\n} catch (x) { /* nó não executou: 1ª tentativa deu certo */ }\n\nfunction tentaJson(v) {\n  if (typeof v !== 'string') return v;\n  try { return JSON.parse(v); } catch (x) { return v; }\n}\n// O agente devolve { output: {...parecer...}, intermediateSteps: [...] }.\nlet parecer = tentaJson(saidaAgente.output);\nif (!parecer || typeof parecer !== 'object' || Array.isArray(parecer)) {\n  return [{ json: { via_webhook: ctx.via_webhook, saida: {\n    area: AREA, parecer: null,\n    meta: { modelo: ($env.GROQ_MODEL_PRODUCAO || $env.GROQ_MODEL_ESPECIALISTA || null), latencia_ms: Date.now() - ctx.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, tentativas, erro: 'saída do agente sem parecer estruturado' },\n  } } }];\n}\nparecer = JSON.parse(JSON.stringify(parecer));\n\n// 1) especialista forçado\nparecer.especialista = AREA;\n\n// 2) piso do guardrail\nconst piso = leitura.guardrail.por_especialista[AREA];\nlet piso_aplicado = false;\nif (ORDEM.indexOf(parecer.status) < ORDEM.indexOf(piso)) {\n  parecer.status = piso;\n  piso_aplicado = true;\n}\n\n// 3a) chamadas de tool (de intermediateSteps)\nconst passos = Array.isArray(saidaAgente.intermediateSteps) ? saidaAgente.intermediateSteps : [];\nconst tool_calls = [];\nconst permitidos = []; // números rastreáveis\n\nfunction coletar(obj) {\n  if (typeof obj === 'number' && Number.isFinite(obj)) { permitidos.push(obj); return; }\n  if (Array.isArray(obj)) { obj.forEach(coletar); return; }\n  if (obj && typeof obj === 'object') Object.values(obj).forEach(coletar);\n}\n\nfor (const p of passos) {\n  const a = (p && p.action) || {};\n  const nome = a.tool || a.name || null;\n  if (nome !== 'consultar_historico') continue;\n  let entrada = tentaJson(a.toolInput);\n  if (entrada && typeof entrada === 'object' && entrada.input !== undefined && Object.keys(entrada).length === 1) entrada = tentaJson(entrada.input);\n  let obs = tentaJson(p.observation);\n  // O agente entrega a resposta da tool como string JSON de uma LISTA de itens ([{...}]).\n  if (Array.isArray(obs) && obs.length === 1) obs = obs[0];\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.json && typeof obs.json === 'object' && Object.keys(obs).length === 1) obs = obs.json;\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.response !== undefined && Object.keys(obs).length === 1) obs = tentaJson(obs.response);\n  const chamada = {\n    tool: nome,\n    entrada: (entrada && typeof entrada === 'object') ? {\n      id_maquina: entrada.id_maquina ?? null, grandeza: entrada.grandeza ?? null, janela_min: entrada.janela_min ?? null,\n    } : { bruto: String(entrada).slice(0, 200) },\n  };\n  if (obs && typeof obs === 'object') {\n    chamada.saida = {\n      ok: obs.ok ?? null, amostras: obs.amostras ?? null, media: obs.media ?? null, desvio_padrao: obs.desvio_padrao ?? null,\n      minimo: obs.minimo ?? null, maximo: obs.maximo ?? null, primeiro: obs.primeiro ?? null, ultimo: obs.ultimo ?? null,\n      variacao_percentual: obs.variacao_percentual ?? null, tendencia: obs.tendencia ?? null,\n      suficiente_para_tendencia: obs.suficiente_para_tendencia ?? null,\n    };\n    if (obs.ok === false) chamada.saida.erro = obs.erro ?? null;\n  } else {\n    chamada.saida = { bruto: String(obs).slice(0, 300) };\n  }\n  tool_calls.push(chamada);\n  coletar(entrada);\n  coletar(obs);\n}\n\n// 3b) anti-alucinação: números citados que não existem na leitura, nominais, limites ou tools\ncoletar(leitura.valores);\ncoletar(leitura.nominais);\nconst viol = (leitura.guardrail && Array.isArray(leitura.guardrail.violacoes)) ? leitura.guardrail.violacoes : [];\nfor (const v of viol) { coletar(v.limite); coletar(v.valor); }\n\nconst rastreavel = (x) => permitidos.some((n) => Math.abs(n - x) <= 0.0100001);\nconst valores_nao_rastreaveis = [];\nconst achados = Array.isArray(parecer.achados) ? parecer.achados : [];\nachados.forEach((a, i) => {\n  if (a && typeof a.valor === 'number' && !rastreavel(a.valor)) valores_nao_rastreaveis.push({ campo: 'achados[' + i + '].valor', valor: a.valor });\n});\nif (parecer.tendencia && typeof parecer.tendencia === 'object') {\n  for (const [k, v] of Object.entries(parecer.tendencia)) {\n    if (typeof v === 'number' && !rastreavel(v)) valores_nao_rastreaveis.push({ campo: 'tendencia.' + k, valor: v });\n  }\n}\n\nconst meta = {\n  modelo: ($env.GROQ_MODEL_PRODUCAO || $env.GROQ_MODEL_ESPECIALISTA || null),\n  latencia_ms: Date.now() - ctx.t0,\n  tool_calls,\n  valores_nao_rastreaveis,\n  piso_aplicado,\n  tentativas,\n  erro: null,\n};\nreturn [{ json: { via_webhook: ctx.via_webhook, saida: { area: AREA, parecer, meta } } }];"
       },
       "id": "c42011-0000-4000-8000-000000000011",
       "name": "Pos-processar Parecer",
@@ -261,22 +261,22 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Ramo de erro do agente (API do Groq, 429, parser de saída estruturada, tool quebrada...).\n// O pipeline nunca trava por causa de um especialista: devolve parecer:null + meta.erro.\nconst ctx = $('Validar Entrada').first().json;\nconst bruto = $input.first().json;\nlet msg = bruto && bruto.error !== undefined ? bruto.error : bruto;\nif (msg && typeof msg === 'object') msg = msg.message || msg.description || JSON.stringify(msg);\nmsg = String(msg === undefined || msg === null ? 'erro desconhecido' : msg).slice(0, 500);\nreturn [{ json: { via_webhook: ctx.via_webhook, saida: {\n  area: ctx.area,\n  parecer: null,\n  meta: { modelo: $env.GROQ_MODEL_ESPECIALISTA || null, latencia_ms: Date.now() - ctx.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, erro: msg },\n} } }];"
+        "jsCode": "// Ramo final de falha do agente (erro não recuperável, ou rate limit persistente após 3 tentativas).\n// O pipeline nunca trava por causa de um especialista: devolve parecer:null + meta.erro + meta.tentativas.\nconst ctx = $('Validar Entrada').first().json;\nconst c = $input.first().json;\nreturn [{ json: { via_webhook: ctx.via_webhook, saida: {\n  area: ctx.area,\n  parecer: null,\n  meta: { modelo: ($env.GROQ_MODEL_PRODUCAO || $env.GROQ_MODEL_ESPECIALISTA || null), latencia_ms: Date.now() - ctx.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, tentativas: c.tentativa, erro: c.erro_msg },\n} } }];"
       },
       "id": "c42012-0000-4000-8000-000000000012",
       "name": "Montar Erro LLM",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -560,
-        60
+        -240,
+        160
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Entrada inválida: o LLM NÃO foi chamado. Devolve erro estruturado no mesmo shape da saída normal.\nconst e = $input.first().json;\nreturn [{ json: { via_webhook: e.via_webhook, saida: {\n  area: e.area,\n  parecer: null,\n  meta: { modelo: $env.GROQ_MODEL_ESPECIALISTA || null, latencia_ms: Date.now() - e.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, erro: e.erro },\n} } }];"
+        "jsCode": "// Entrada inválida: o LLM NÃO foi chamado. Devolve erro estruturado no mesmo shape da saída normal.\nconst e = $input.first().json;\nreturn [{ json: { via_webhook: e.via_webhook, saida: {\n  area: e.area,\n  parecer: null,\n  meta: { modelo: ($env.GROQ_MODEL_PRODUCAO || $env.GROQ_MODEL_ESPECIALISTA || null), latencia_ms: Date.now() - e.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, tentativas: 0, erro: e.erro },\n} } }];"
       },
       "id": "c42013-0000-4000-8000-000000000013",
       "name": "Montar Erro Entrada",
@@ -337,7 +337,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Caminho real (toolWorkflow / Execute Workflow): sem nó de Webhook na execução.\n// A saída deste nó é o retorno do sub-workflow: { area, parecer, meta }.\nreturn [{ json: $input.first().json.saida }];"
+        "jsCode": "// Caminho real (toolWorkflow / Execute Workflow): sem nó de Webhook na execução.\n// Retorno COMPACTO para poupar tokens do supervisor: sem tool_calls nem latência.\n// (O Webhook de teste devolve o meta completo; o smoke depende dele.)\nconst s = $input.first().json.saida;\nconst m = s.meta || {};\nreturn [{ json: {\n  area: s.area,\n  parecer: s.parecer,\n  meta: {\n    modelo: m.modelo ?? null,\n    piso_aplicado: m.piso_aplicado ?? false,\n    erro: m.erro ?? null,\n    tentativas: m.tentativas ?? null,\n    valores_nao_rastreaveis: m.valores_nao_rastreaveis ?? [],\n  },\n} }];"
       },
       "id": "c42016-0000-4000-8000-000000000016",
       "name": "Retornar Saida",
@@ -347,6 +347,68 @@
         -80,
         200
       ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Classifica o erro do agente. Rate limit (429 / \"too many requests\" / \"rate limit\" / TPM) com menos\n// de 3 tentativas => retentar depois de esperar (o \"try again in Xs\" da mensagem, entre 10 e 60 s;\n// sem sugestão, 30 s). Qualquer outro erro, ou a 3ª tentativa, segue para o erro estruturado.\n// $runIndex = nº de vezes que ESTE nó já rodou nesta execução = falhas anteriores do agente.\nconst MAX_TENTATIVAS = 3;\nconst bruto = $input.first().json;\nconst err = bruto && bruto.error !== undefined ? bruto.error : bruto;\nlet msg = err;\nif (msg && typeof msg === 'object') msg = msg.message || msg.description || JSON.stringify(msg);\nmsg = String(msg === undefined || msg === null ? 'erro desconhecido' : msg);\n\nlet detalhe = '';\ntry {\n  if (err && typeof err === 'object') {\n    detalhe = [err.message, err.description, err.cause && err.cause.message, JSON.stringify(err).slice(0, 3000)].filter(Boolean).join(' | ');\n  }\n} catch (x) { /* ignora */ }\nconst texto = msg + ' | ' + detalhe;\n\nconst ehRateLimit = /\\b429\\b|too many requests|rate.?limit|tokens per minute|requests per minute/i.test(texto);\nconst tentativa = $runIndex + 1;\n\nlet espera_s = 30;\nconst m = texto.match(/try again in\\s+(?:(\\d+)m)?\\s*([\\d.]+)\\s*s\\b/i);\nif (m) espera_s = Math.min(60, Math.max(10, Math.ceil(Number(m[1] || 0) * 60 + Number(m[2])) + 1));\n\n// Carrega o contexto do agente (prompt_usuario etc.): o Wait devolve ESTE item ao agente.\nconst ctx = $('Validar Entrada').first().json;\nreturn [{ json: {\n  ...ctx,\n  retentar: ehRateLimit && tentativa < MAX_TENTATIVAS,\n  rate_limit: ehRateLimit,\n  tentativa,\n  espera_s,\n  erro_msg: msg.slice(0, 500),\n} }];"
+      },
+      "id": "c42017-0000-4000-8000-000000000017",
+      "name": "Classificar Erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.retentar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c42018-0000-4000-8000-000000000018",
+      "name": "Retentar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -460,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.espera_s }}",
+        "unit": "seconds"
+      },
+      "id": "c42019-0000-4000-8000-000000000019",
+      "name": "Esperar 429",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -460,
+        -200
+      ],
+      "webhookId": "cp5-esp-espera-producao-0001"
     }
   ],
   "connections": {
@@ -434,7 +496,7 @@
         ],
         [
           {
-            "node": "Montar Erro LLM",
+            "node": "Classificar Erro",
             "type": "main",
             "index": 0
           }
@@ -519,6 +581,46 @@
         [
           {
             "node": "Retornar Saida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificar Erro": {
+      "main": [
+        [
+          {
+            "node": "Retentar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retentar?": {
+      "main": [
+        [
+          {
+            "node": "Esperar 429",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Montar Erro LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar 429": {
+      "main": [
+        [
+          {
+            "node": "Agente Especialista",
             "type": "main",
             "index": 0
           }
