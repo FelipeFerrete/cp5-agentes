@@ -186,6 +186,59 @@
     `janela_min` (cada um citado 2x na query) sem duplicar parâmetros fora de
     ordem.
 
+18. **`toolWorkflow` (2.1) SEM `workflowInputs.schema` ignora os `$fromAI` e vira
+    uma tool de UMA string (achado T11; código lido em
+    `ToolWorkflow/v2/utils/WorkflowToolService.js`).** O construtor faz
+    `useSchema = (workflowInputs.schema ?? []).length > 0`; sem `schema` a tool
+    é um `DynamicTool` cujo único argumento é `input`/`query` (string). O LLM
+    chamou `{"input":"MOTOR_01 temperatura"}` e o sub-workflow recebeu
+    `id_maquina=null, grandeza=null` (WF-40 respondeu `ok:false`, execução 51 do
+    n8n). O exemplo da armadilha 15/§3.23 (só `mappingMode` + `value`) está
+    INCOMPLETO. Forma correta (validada ao vivo, o LLM passou a mandar
+    `{id_maquina, grandeza, janela_min}`):
+    ```
+    "workflowInputs": {
+      "mappingMode": "defineBelow",
+      "value": { "id_maquina": "={{ $fromAI('id_maquina', '...', 'string') }}", ... },
+      "matchingColumns": [],
+      "schema": [
+        { "id": "id_maquina", "displayName": "id_maquina", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
+        { "id": "janela_min", "displayName": "janela_min", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number" }
+      ],
+      "attemptToConvertTypes": false, "convertFieldsToString": false
+    }
+    ```
+19. **Agent 3.1 + `toolWorkflow` 2.1: o nome do NÓ precisa ser igual ao
+    parâmetro `name` da tool.** O agente lista as tools ao modelo pelo `name`
+    (`consultar_historico`), mas o histórico de tool calls carrega o nome
+    derivado do nó (`nodeNameToToolName`: nó "Consultar Historico" vira
+    `Consultar_Historico`). Na 2ª chamada o Groq respondeu 400
+    `tool_use_failed ... attempted to call tool 'Consultar_Historico' which was
+    not in request.tools` e o n8n só mostrou "Bad request - please check your
+    parameters" (o detalhe real está em `error.description`/`cause` da execução).
+    Correção: nomear o nó exatamente `consultar_historico`.
+20. **Formato de `intermediateSteps` do Agent 3.1:** cada passo é
+    `{ action: { tool, toolInput: {<campos>}, toolCallId, log, messageLog }, observation }`,
+    e `observation` é uma STRING JSON de uma LISTA de itens (`"[{\"ok\":true,...}]"`),
+    não do objeto. Quem processa precisa `JSON.parse` + desembrulhar `[0]`.
+    A saída do agente com parser é `{ output: {...}, intermediateSteps: [...] }`
+    (o parser 1.3 embrulha em `output`; o agente já entrega desembrulhado).
+21. **`onError: "continueErrorOutput"` no Agent** cria a saída 1 (erro), com
+    o item de entrada + `error`. Validado: com o 429 do Groq o workflow seguiu
+    para "Montar Erro LLM" e respondeu `parecer:null, meta.erro` (HTTP 200), sem
+    travar. O `$schema`/`$id` do `especialista.schema.json` é aceito pelo
+    parser (`@n8n/json-schema-to-zod` ignora as chaves; `additionalProperties:false`
+    e enums são aplicados, `type:["number","null"]` funciona); o build remove as
+    duas chaves mesmo assim.
+22. **Groq gratuito, `openai/gpt-oss-20b`: TPM = 8000.** Cada especialista
+    faz 2–3 chamadas ao LLM (~2.0k tokens de prompt cada, mais raciocínio;
+    observado 2.4k a 3.7k tokens por chamada), ou seja ~5–8k tokens por parecer:
+    UM parecer já consome quase todo o limite por minuto. Erro observado:
+    `Rate limit reached ... tokens per minute (TPM): Limit 8000, Used 7271, Requested 2237. Please try again in 11.31s`.
+    O 429 do Groq aparece como "The service is receiving too many requests
+    from you". Chamadas em sequência (ex.: supervisor chamando 3 especialistas)
+    estouram o limite; ver riscos no relatório do T11.
+
 ## 3. Nós — `type` exato, `typeVersion` máxima e parâmetros principais
 
 Cada bloco abaixo é o trecho mínimo de `parameters` (+ `credentials` quando

@@ -39,6 +39,17 @@
  * Uso:
  *   node n8n/build.js
  *
+ * VARIANTES (T11): um template pode gerar N workflows. `wf2x_especialista.template.json`
+ * é a fonte única dos 3 especialistas (WF-20/21/22); para cada variante o build
+ * substitui marcadores (__AREA__, __WF_ID__, __WF_NOME__, __WEBHOOK_ID__,
+ * __SYSTEM_PROMPT__, __SCHEMA_ESPECIALISTA__) nos VALORES DE STRING já parseados
+ * (percorrendo o objeto), nunca no texto JSON cru -- assim aspas, quebras de
+ * linha e barras do prompt/schema são escapadas pelo JSON.stringify final.
+ * O system prompt = prompts/<area>.md (sem a linha "<!-- concatenar: ... -->")
+ * + linha em branco + prompts/especialista_base.md a partir do primeiro "---".
+ * O schema = contracts/especialista.schema.json sem $schema/$id.
+ * Templates sem variantes seguem o caminho antigo (saída idêntica).
+ *
  * Sem dependências além dos módulos nativos do Node (fs, path).
  * =============================================================================
  */
@@ -94,6 +105,53 @@ function processarWorkflow(wf, guardrailSource) {
   return nosComMarcador;
 }
 
+// ---------------------------------------------------------------------------
+// Variantes (T11)
+// ---------------------------------------------------------------------------
+const VARIANTES = {
+  'wf2x_especialista.template.json': [
+    { arquivo: 'wf20_manutencao.json', area: 'manutencao', id: 'wf-cp5-20-manutencao', nome: 'WF-20 Especialista: Manutenção', webhookId: 'cp5-especialista-manutencao-0001' },
+    { arquivo: 'wf21_producao.json', area: 'producao', id: 'wf-cp5-21-producao', nome: 'WF-21 Especialista: Produção', webhookId: 'cp5-especialista-producao-0001' },
+    { arquivo: 'wf22_energia.json', area: 'energia', id: 'wf-cp5-22-energia', nome: 'WF-22 Especialista: Energia', webhookId: 'cp5-especialista-energia-0001' },
+  ],
+};
+
+function lerSystemPrompt(area) {
+  const ler = (f) => fs.readFileSync(path.join(ROOT, 'prompts', f), 'utf8').replace(/\r\n/g, '\n');
+  const esp = ler(`${area}.md`);
+  const base = ler('especialista_base.md');
+  const espLimpo = esp.split('\n').filter((l) => !/^\s*<!--\s*concatenar:.*-->\s*$/.test(l)).join('\n').trim();
+  const linhas = base.split('\n');
+  const i = linhas.findIndex((l) => l.trim() === '---');
+  if (i < 0) throw new Error('build.js: prompts/especialista_base.md sem separador "---"');
+  const baseUtil = linhas.slice(i + 1).join('\n').trim();
+  if (!espLimpo || !baseUtil) throw new Error(`build.js: prompt vazio para ${area}`);
+  return espLimpo + '\n\n' + baseUtil;
+}
+
+function lerSchemaEspecialista() {
+  const schema = JSON.parse(fs.readFileSync(path.join(ROOT, 'contracts', 'especialista.schema.json'), 'utf8'));
+  delete schema.$schema; // o parser do n8n (json-schema-to-zod) ignora, mas não precisa ir no prompt do LLM
+  delete schema.$id;
+  return JSON.stringify(schema, null, 2);
+}
+
+/** Percorre o objeto já parseado e troca marcadores só dentro de valores string. */
+function substituirMarcadores(obj, mapa) {
+  if (typeof obj === 'string') {
+    let out = obj;
+    for (const [k, v] of Object.entries(mapa)) out = out.split(k).join(v);
+    return out;
+  }
+  if (Array.isArray(obj)) return obj.map((x) => substituirMarcadores(x, mapa));
+  if (obj && typeof obj === 'object') {
+    const r = {};
+    for (const [k, v] of Object.entries(obj)) r[k] = substituirMarcadores(v, mapa);
+    return r;
+  }
+  return obj;
+}
+
 function main() {
   const guardrailSource = lerGuardrailSource();
 
@@ -122,14 +180,30 @@ function main() {
       throw new Error(`build.js: falha ao parsear ${file}: ${e.message}`);
     }
 
-    const nosInjetados = processarWorkflow(wf, guardrailSource);
-    const outName = file.replace(/\.template\.json$/, '.json');
-    const outPath = path.join(OUTPUT_DIR, outName);
-    fs.writeFileSync(outPath, JSON.stringify(wf, null, 2) + '\n', 'utf8');
-    console.log(
-      `Gerado: n8n/workflows/${outName} (id=${wf.id}, nós=${(wf.nodes || []).length}, ` +
-      `guardrail injetado em ${nosInjetados} nó(s) Code)`
-    );
+    const variantes = VARIANTES[file];
+    const saidas = variantes
+      ? variantes.map((v) => ({
+          nome: v.arquivo,
+          wf: substituirMarcadores(wf, {
+            __AREA__: v.area,
+            __WF_ID__: v.id,
+            __WF_NOME__: v.nome,
+            __WEBHOOK_ID__: v.webhookId,
+            __SYSTEM_PROMPT__: lerSystemPrompt(v.area),
+            __SCHEMA_ESPECIALISTA__: lerSchemaEspecialista(),
+          }),
+        }))
+      : [{ nome: file.replace(/\.template\.json$/, '.json'), wf }];
+
+    for (const saida of saidas) {
+      const nosInjetados = processarWorkflow(saida.wf, guardrailSource);
+      const outPath = path.join(OUTPUT_DIR, saida.nome);
+      fs.writeFileSync(outPath, JSON.stringify(saida.wf, null, 2) + '\n', 'utf8');
+      console.log(
+        `Gerado: n8n/workflows/${saida.nome} (id=${saida.wf.id}, nós=${(saida.wf.nodes || []).length}, ` +
+        `guardrail injetado em ${nosInjetados} nó(s) Code)`
+      );
+    }
   }
 }
 
