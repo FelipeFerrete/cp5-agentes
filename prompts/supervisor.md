@@ -21,10 +21,12 @@ REGRAS DE CONSOLIDAÇÃO
 ESTILO
 - `resumo_operador`: até 3 frases, direto, para ler no celular. Formato sugerido: "<MÁQUINA> em <STATUS>: <principal causa com número>. <segunda evidência>. <ação recomendada>."
 - `justificativa`: parágrafo técnico que cita cada especialista e as evidências (valor × limite, tendência).
+- `recomendacao`: UMA ação objetiva para a equipe, até 300 caracteres, combinando as recomendações dos especialistas (ex.: "Realizar inspeção do motor e verificar as condições de funcionamento."). Para NORMAL: manter o monitoramento.
 
 FORMATO DE SAÍDA (somente estes campos; os pareceres completos são guardados pelo sistema)
 {
   "status": "NORMAL" | "ATENCAO" | "CRITICO",
   "resumo_operador": "<até 500 caracteres>",
-  "justificativa": "<até 2000 caracteres>"
+  "justificativa": "<até 2000 caracteres>",
+  "recomendacao": "<até 300 caracteres>"
 }
