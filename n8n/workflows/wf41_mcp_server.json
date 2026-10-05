@@ -1,0 +1,197 @@
+{
+  "id": "wf-cp5-41-mcp-server",
+  "name": "WF-41 Servidor MCP",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "none",
+        "path": "cp5",
+        "instructions": "Servidor MCP do monitoramento de motores da CP5 (vinícola). Ferramentas: consultar_historico (estatísticas de uma grandeza nas últimas horas, a memória dos agentes), status_maquina (última decisão gravada para uma máquina) e avaliar_leitura (roda o sistema multiagente completo sobre uma leitura de sensores e dispara as ações). Use apenas os números que as ferramentas devolverem."
+      },
+      "id": "c4100001-0000-4000-8000-000000000001",
+      "name": "MCP Server Trigger",
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "cp5-mcp-server-0001"
+    },
+    {
+      "parameters": {
+        "name": "consultar_historico",
+        "description": "Consulta no banco o histórico de uma grandeza de uma máquina e devolve estatísticas (amostras, média, desvio padrão, mínimo, máximo, primeiro, último, variacao_percentual) e a tendência (alta, baixa ou estavel). Use para saber se um valor é pontual ou está subindo/caindo. Não invente nada além do que ela devolver. Se ok=false, leia o campo erro.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "wf-cp5-40-tool-historico"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_maquina": "={{ $fromAI('id_maquina', 'ID da máquina, exatamente como aparece na leitura, ex. MOTOR_01', 'string') }}",
+            "grandeza": "={{ $fromAI('grandeza', 'Uma de: temperatura, vibracao, corrente, taxa_producao, fator_potencia, eficiencia', 'string') }}",
+            "janela_min": "={{ $fromAI('janela_min', 'Janela em minutos, de 10 a 1440 (use 120)', 'number') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id_maquina",
+              "displayName": "id_maquina",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "grandeza",
+              "displayName": "grandeza",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "janela_min",
+              "displayName": "janela_min",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "c4100002-0000-4000-8000-000000000002",
+      "name": "consultar_historico",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.1,
+      "position": [
+        -320,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Devolve a última decisão gravada para uma máquina: situação (NORMAL/ALERTA), status final, problemas identificados, recomendação, resumo do agente, ações disparadas e horário. Use para responder 'como está o MOTOR_01?'.",
+        "operation": "executeQuery",
+        "query": "SELECT id AS id_decisao, id_maquina, created_at, situacao, status_final, problemas, recomendacao, resumo_operador, acoes_previstas FROM decisoes WHERE id_maquina = $1 ORDER BY id DESC LIMIT 1",
+        "options": {
+          "queryReplacement": "={{ [$fromAI('id_maquina', 'ID da máquina, ex. MOTOR_01', 'string')] }}"
+        }
+      },
+      "id": "c4100003-0000-4000-8000-000000000003",
+      "name": "status_maquina",
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.5,
+      "position": [
+        0,
+        240
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "cred-mysql-cp5",
+          "name": "MySQL CP5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "avaliar_leitura",
+        "description": "Roda o sistema multiagente completo (guardrail, supervisor e três especialistas) sobre uma leitura de sensores, grava a decisão e dispara as ações (Telegram, e-mail, Trello). Leva cerca de 1 minuto. Devolve situação, problemas identificados, recomendação e o relatório.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "wf-cp5-10-pipeline"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "payload": "={{ $fromAI('leitura_json', 'Leitura em JSON com id_maquina, temperatura, vibracao, tensao, corrente, fator_potencia, taxa_producao e taxa_producao_esperada. Ex.: {\"id_maquina\":\"MOTOR_01\",\"temperatura\":86.5,\"vibracao\":8.2,\"tensao\":220,\"corrente\":18.5,\"fator_potencia\":0.62,\"taxa_producao\":42,\"taxa_producao_esperada\":60}', 'string') }}",
+            "origem": "webhook"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "payload",
+              "displayName": "payload",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "origem",
+              "displayName": "origem",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "c4100004-0000-4000-8000-000000000004",
+      "name": "avaliar_leitura",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.1,
+      "position": [
+        320,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "consultar_historico": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "status_maquina": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "avaliar_leitura": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
