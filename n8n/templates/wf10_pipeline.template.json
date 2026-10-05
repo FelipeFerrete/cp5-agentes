@@ -1,6 +1,6 @@
 {
   "id": "wf-cp5-10-pipeline",
-  "name": "WF-10 Pipeline (guardrail, sem LLM)",
+  "name": "WF-10 Pipeline",
   "nodes": [
     {
       "parameters": {
@@ -134,29 +134,14 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// SUPERVISOR (stub) -- T06/T07.\n// Será substituído em T12 por um AI Agent real (Supervisor + 3 especialistas\n// via toolWorkflow). Até lá: status_llm sempre null, pareceres sempre null.\n//\n// A função gerarFallbackOperador() abaixo é determinística (não chama LLM\n// algum) e foi escrita para ser REAPROVEITÁVEL: em T12 ela deve virar o\n// fallback usado quando o Supervisor real falhar/não responder a tempo --\n// nesse caso o pipeline não pode ficar sem resumo_operador/justificativa.\nfunction gerarFallbackOperador(leitura, limiares) {\n  const rotulos = limiares.status.rotulos;\n  const val = leitura.validacao;\n  const g = leitura.guardrail;\n\n  if (!val.ok) {\n    const motivos = [];\n    if (val.id_invalido) motivos.push('id_maquina inválido ou fora do padrão');\n    if (!val.maquina_conhecida) motivos.push('máquina desconhecida (' + leitura.id_maquina + ')');\n    if (val.campos_ausentes.length) motivos.push('campo(s) ausente(s): ' + val.campos_ausentes.join(', '));\n    if (val.tipo_invalido.length) motivos.push('tipo inválido em: ' + val.tipo_invalido.join(', '));\n    if (val.fora_faixa_fisica.length) motivos.push('fora da faixa física: ' + val.fora_faixa_fisica.join(', '));\n    const motivoPrincipal = motivos[0] || 'validação falhou';\n    const resumo_operador = ('Dados inconsistentes: ' + motivoPrincipal + '. Verificação humana necessária.').slice(0, 500);\n    const justificativa = (\n      'Verificação humana necessária. Motivo(s): ' + motivos.join('; ') + '. ' +\n      'Guardrail determinístico (config/limiares.json): ' + rotulos[g.status] + '. ' +\n      'Supervisor LLM não avaliado (stub T06/T07 -- será substituído em T12).'\n    ).slice(0, 2000);\n    return { resumo_operador, justificativa };\n  }\n\n  if (!g.violacoes.length) {\n    return {\n      resumo_operador: (leitura.id_maquina + ' em ' + rotulos[g.status] + ': nenhuma grandeza fora do limiar.').slice(0, 500),\n      justificativa: (\n        'Guardrail determinístico avaliou todas as grandezas dentro dos limiares configurados ' +\n        '(config/limiares.json). Status: ' + rotulos[g.status] + '. ' +\n        'Supervisor LLM não avaliado (stub T06/T07 -- será substituído em T12).'\n      ).slice(0, 2000),\n    };\n  }\n\n  const partes = g.violacoes.map((v) => v.grandeza + ' ' + v.valor + ' (limite ' + v.limite + ', ' + rotulos[v.status] + ')');\n  const resumo_operador = (leitura.id_maquina + ' em ' + rotulos[g.status] + ': ' + partes.join('; ') + '.').slice(0, 500);\n  const justificativa = (\n    'Guardrail determinístico (config/limiares.json) classificou ' + leitura.id_maquina + ' como ' + rotulos[g.status] + '. ' +\n    'Violações: ' + partes.join('; ') + '. ' +\n    'Especialistas: manutenção=' + rotulos[g.por_especialista.manutencao] +\n    ', produção=' + rotulos[g.por_especialista.producao] +\n    ', energia=' + rotulos[g.por_especialista.energia] + '. ' +\n    'Supervisor LLM não avaliado (stub T06/T07 -- será substituído em T12).'\n  ).slice(0, 2000);\n  return { resumo_operador, justificativa };\n}\n\nconst insertResult = $('Inserir Leitura').first().json;\nconst anterior = $('Validar e Guardrail').first().json;\nconst limiares = $('Preparar Payload').first().json.limiares;\n\n// options.detailedOutput:true no nó \"Inserir Leitura\" -> { sql, data: <ResultSetHeader> }.\n// Sem detailedOutput cairia em {success:true} sem insertId nenhum (ver comentário no\n// gerador do template). Checamos os dois formatos por robustez.\nconst insertId = (insertResult.data && insertResult.data.insertId !== undefined)\n  ? insertResult.data.insertId\n  : insertResult.insertId;\n\nconst leitura = Object.assign({}, anterior.leitura, { id_leitura: insertId });\nconst fallback = gerarFallbackOperador(leitura, limiares);\n\nreturn [{\n  json: {\n    leitura,\n    status_llm: null,\n    pareceres: { manutencao: null, producao: null, energia: null },\n    resumo_operador: fallback.resumo_operador,\n    justificativa: fallback.justificativa,\n    inicio_ms: anterior.inicio_ms,\n  },\n}];"
-      },
-      "id": "c580000-0000-4000-8000-000000000008",
-      "name": "SUPERVISOR (stub)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -240,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "__GUARDRAIL_JS__\n\n// --- Fiação (WF-10, nó \"Consolidar\") ----------------------------------------\n// consolidar() acima é o mesmo contracts/guardrail.js::consolidar (piso de\n// severidade = max(status_llm, status_guardrail); nunca é rebaixado pelo LLM).\nconst stub = $input.first().json;\nconst limiares = $('Preparar Payload').first().json.limiares;\nconst base = consolidar(stub.leitura, stub.status_llm, limiares, false);\n\nconst decisao = {\n  id_decisao: null,\n  id_leitura: stub.leitura.id_leitura,\n  id_maquina: stub.leitura.id_maquina,\n  ts: stub.leitura.ts,\n  status_guardrail: base.status_guardrail,\n  status_llm: base.status_llm,\n  status_final: base.status_final,\n  sensor_fault: base.sensor_fault,\n  requer_humano: base.requer_humano,\n  especialistas: stub.pareceres,\n  resumo_operador: stub.resumo_operador,\n  justificativa: stub.justificativa,\n  acoes_previstas: base.acoes_previstas,\n  modelo: null,\n  latencia_ms: Date.now() - stub.inicio_ms,\n};\n\nreturn [{ json: { decisao } }];"
+        "jsCode": "__GUARDRAIL_JS__\n\n// --- Fiação (WF-10, nó \"Consolidar\") ----------------------------------------\n// consolidar() acima é o mesmo contracts/guardrail.js::consolidar (piso de\n// severidade = max(status_llm, status_guardrail); nunca é rebaixado pelo LLM).\nconst stub = $input.first().json;\nconst limiares = $('Preparar Payload').first().json.limiares;\n// especialistasRequeremHumano: algum parecer com dados_insuficientes: true (o piso do guardrail continua mandando).\nconst pareceresLista = Object.values(stub.pareceres || {});\nconst especialistasRequeremHumano = pareceresLista.some((p) => p && p.dados_insuficientes === true);\nconst base = consolidar(stub.leitura, stub.status_llm, limiares, especialistasRequeremHumano);\n\nconst decisao = {\n  id_decisao: null,\n  id_leitura: stub.leitura.id_leitura,\n  id_maquina: stub.leitura.id_maquina,\n  ts: stub.leitura.ts,\n  status_guardrail: base.status_guardrail,\n  status_llm: base.status_llm,\n  status_final: base.status_final,\n  sensor_fault: base.sensor_fault,\n  requer_humano: base.requer_humano,\n  especialistas: stub.pareceres,\n  resumo_operador: stub.resumo_operador,\n  justificativa: stub.justificativa,\n  acoes_previstas: base.acoes_previstas,\n  modelo: stub.modelo ?? null,\n  latencia_ms: Date.now() - stub.inicio_ms,\n};\n\nreturn [{ json: { decisao } }];"
       },
       "id": "c590000-0000-4000-8000-000000000009",
       "name": "Consolidar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -20,
+        920,
         0
       ]
     },
@@ -171,7 +156,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        200,
+        1140,
         0
       ]
     },
@@ -194,7 +179,7 @@
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.5,
       "position": [
-        420,
+        1360,
         0
       ],
       "credentials": {
@@ -215,7 +200,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        640,
+        1580,
         0
       ]
     },
@@ -236,7 +221,7 @@
       "typeVersion": 1.3,
       "onError": "continueRegularOutput",
       "position": [
-        860,
+        1800,
         0
       ]
     },
@@ -251,7 +236,342 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1080,
+        2020,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Prepara a chamada do supervisor (T12).\n// Decide SE o LLM é acionado:\n//   - atalho: id_maquina inválido ou máquina desconhecida => não há o que diagnosticar; exige humano;\n//   - flag de teste: entrada.usar_llm === false (WF-01 com ?llm=0) => caminho determinístico.\n// O WF-00 (MQTT) não manda usar_llm => padrão true (sempre usa o LLM).\nconst anterior = $('Validar e Guardrail').first().json;\nconst insertResult = $('Inserir Leitura').first().json;\nconst insertId = (insertResult.data && insertResult.data.insertId !== undefined)\n  ? insertResult.data.insertId\n  : insertResult.insertId;\nconst leitura = Object.assign({}, anterior.leitura, { id_leitura: insertId });\n\nconst entrada = $('Trigger').first().json;\nconst uf = entrada.usar_llm;\nconst flagLlm = !(uf === false || uf === 'false' || uf === 0 || uf === '0');\nconst val = leitura.validacao;\nconst atalho = val.id_invalido === true || val.maquina_conhecida === false;\nconst motivo_sem_llm = atalho ? 'atalho' : (!flagLlm ? 'flag' : null);\n\nconst prompt_usuario =\n  'LEITURA (JSON):\\n' + JSON.stringify(leitura) +\n  '\\n\\nConsulte as três ferramentas (uma vez cada), consolide os pareceres e responda.' +\n  '\\n\\nENTREGA: ao terminar, chame a ferramenta format_final_json_response com o argumento ' +\n  '{\"output\": {\"status\": ..., \"resumo_operador\": ..., \"justificativa\": ...}} (a decisão vai DENTRO da chave \"output\").';\n\nreturn [{ json: {\n  leitura,\n  inicio_ms: anterior.inicio_ms,\n  chamar_llm: motivo_sem_llm === null,\n  motivo_sem_llm,\n  prompt_usuario,\n} }];"
+      },
+      "id": "c5150000-0000-4000-8000-000000000015",
+      "name": "Preparar Supervisor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.chamar_llm }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c5160000-0000-4000-8000-000000000016",
+      "name": "Chamar LLM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -20,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt_usuario }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "__SUPERVISOR_PROMPT__",
+          "maxIterations": 8,
+          "returnIntermediateSteps": true
+        }
+      },
+      "id": "c5170000-0000-4000-8000-000000000017",
+      "name": "Supervisor",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "position": [
+        240,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "model": "={{ $env.GROQ_MODEL_SUPERVISOR }}",
+        "options": {
+          "temperature": 0.1,
+          "maxTokensToSample": 4096
+        }
+      },
+      "id": "c5180000-0000-4000-8000-000000000018",
+      "name": "Groq Supervisor",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        100,
+        200
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "cred-groq-cp5",
+          "name": "Groq CP5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"status\",\n    \"resumo_operador\",\n    \"justificativa\"\n  ],\n  \"properties\": {\n    \"status\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"NORMAL\",\n        \"ATENCAO\",\n        \"CRITICO\"\n      ]\n    },\n    \"resumo_operador\": {\n      \"type\": \"string\",\n      \"maxLength\": 500\n    },\n    \"justificativa\": {\n      \"type\": \"string\",\n      \"maxLength\": 2000\n    }\n  }\n}",
+        "autoFix": false
+      },
+      "id": "c5190000-0000-4000-8000-000000000019",
+      "name": "Parser Supervisor",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "name": "especialista_manutencao",
+        "description": "Especialista de MANUTENÇÃO: avalia temperatura e vibração do motor, com tendência no histórico do banco. Chame UMA vez. A leitura da máquina já é entregue ao especialista pelo sistema: envie apenas a pergunta. Devolve { area, parecer, meta }: parecer.status (NORMAL, ATENCAO ou CRITICO), achados, tendencia, recomendacao, dados_insuficientes. Se parecer for null, o especialista falhou (veja meta.erro): não chame de novo.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "wf-cp5-20-manutencao"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "leitura": "={{ JSON.stringify($('Preparar Supervisor').first().json.leitura) }}",
+            "pergunta": "={{ $fromAI('pergunta', 'Pergunta curta (até 200 caracteres) com o foco da análise para este especialista, ex.: temperatura e vibração acima do limite; há tendência de alta?', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "leitura",
+              "displayName": "leitura",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "pergunta",
+              "displayName": "pergunta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "c51a0000-0000-4000-8000-00000000001a",
+      "name": "especialista_manutencao",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.1,
+      "position": [
+        460,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "name": "especialista_producao",
+        "description": "Especialista de PRODUÇÃO: avalia a taxa de produção contra a esperada (eficiência), com tendência no histórico do banco. Chame UMA vez. A leitura da máquina já é entregue ao especialista pelo sistema: envie apenas a pergunta. Devolve { area, parecer, meta }: parecer.status (NORMAL, ATENCAO ou CRITICO), achados, tendencia, recomendacao, dados_insuficientes. Se parecer for null, o especialista falhou (veja meta.erro): não chame de novo.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "wf-cp5-21-producao"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "leitura": "={{ JSON.stringify($('Preparar Supervisor').first().json.leitura) }}",
+            "pergunta": "={{ $fromAI('pergunta', 'Pergunta curta (até 200 caracteres) com o foco da análise para este especialista, ex.: temperatura e vibração acima do limite; há tendência de alta?', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "leitura",
+              "displayName": "leitura",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "pergunta",
+              "displayName": "pergunta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "c51b0000-0000-4000-8000-00000000001b",
+      "name": "especialista_producao",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.1,
+      "position": [
+        620,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "name": "especialista_energia",
+        "description": "Especialista de ENERGIA: avalia tensão, corrente e fator de potência contra os nominais da máquina, com tendência no histórico do banco. Chame UMA vez. A leitura da máquina já é entregue ao especialista pelo sistema: envie apenas a pergunta. Devolve { area, parecer, meta }: parecer.status (NORMAL, ATENCAO ou CRITICO), achados, tendencia, recomendacao, dados_insuficientes. Se parecer for null, o especialista falhou (veja meta.erro): não chame de novo.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "wf-cp5-22-energia"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "leitura": "={{ JSON.stringify($('Preparar Supervisor').first().json.leitura) }}",
+            "pergunta": "={{ $fromAI('pergunta', 'Pergunta curta (até 200 caracteres) com o foco da análise para este especialista, ex.: temperatura e vibração acima do limite; há tendência de alta?', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "leitura",
+              "displayName": "leitura",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "pergunta",
+              "displayName": "pergunta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "c51c0000-0000-4000-8000-00000000001c",
+      "name": "especialista_energia",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.1,
+      "position": [
+        780,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Classifica o erro do agente supervisor. Rate limit (429 / \"too many requests\" / \"rate limit\" / TPM)\n// com menos de 3 tentativas => espera ativa e volta ao supervisor (o \"try again in Xs\" da mensagem,\n// entre 10 e 60 s; sem sugestão, 30 s). Outro erro, ou a 3ª tentativa => falha_llm (fallback determinístico).\n// $runIndex = nº de vezes que ESTE nó já rodou nesta execução = falhas anteriores do agente.\nconst MAX_TENTATIVAS = 3;\nconst bruto = $input.first().json;\nconst err = bruto && bruto.error !== undefined ? bruto.error : bruto;\nlet msg = err;\nif (msg && typeof msg === 'object') msg = msg.message || msg.description || JSON.stringify(msg);\nmsg = String(msg === undefined || msg === null ? 'erro desconhecido' : msg);\n\nlet detalhe = '';\ntry {\n  if (err && typeof err === 'object') {\n    detalhe = [err.message, err.description, err.cause && err.cause.message, JSON.stringify(err).slice(0, 3000)].filter(Boolean).join(' | ');\n  }\n} catch (x) { /* ignora */ }\nconst texto = msg + ' | ' + detalhe;\n\nconst ehRateLimit = /\\b429\\b|too many requests|rate.?limit|tokens per minute|requests per minute/i.test(texto);\nconst tentativa = $runIndex + 1;\n\nlet espera_s = 30;\nconst m = texto.match(/try again in\\s+(?:(\\d+)m)?\\s*([\\d.]+)\\s*s\\b/i);\nif (m) espera_s = Math.min(60, Math.max(10, Math.ceil(Number(m[1] || 0) * 60 + Number(m[2])) + 1));\n\n// Carrega o contexto (prompt_usuario etc.): o Wait devolve ESTE item ao agente.\nconst ctx = $('Preparar Supervisor').first().json;\nreturn [{ json: {\n  ...ctx,\n  retentar: ehRateLimit && tentativa < MAX_TENTATIVAS,\n  falha_llm: true,\n  rate_limit: ehRateLimit,\n  tentativa,\n  espera_s,\n  erro_msg: msg.slice(0, 500),\n} }];"
+      },
+      "id": "c51d0000-0000-4000-8000-00000000001d",
+      "name": "Classificar Erro Supervisor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.retentar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c51e0000-0000-4000-8000-00000000001e",
+      "name": "Retentar Supervisor?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        460,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.espera_s }}",
+        "unit": "seconds"
+      },
+      "id": "c51f0000-0000-4000-8000-00000000001f",
+      "name": "Esperar 429 Supervisor",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        -60
+      ],
+      "webhookId": "cp5-wf10-espera-supervisor-0001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Resultado do supervisor (T12). Três entradas possíveis (só uma dispara por execução):\n//   1) sem LLM  : item de \"Chamar LLM?\" (ramo false): chamar_llm === false (atalho ou flag usar_llm=false);\n//   2) falha    : item de \"Classificar Erro Supervisor\" (ramo sem retentativa): falha_llm === true;\n//   3) agente   : saída do AI Agent { output, intermediateSteps }.\n// Em 1 e 2, ou se a saída do agente for inválida/vazia, usa gerarFallbackOperador() (determinístico)\n// e status_llm = null. Os pareceres dos especialistas são extraídos de intermediateSteps POR CÓDIGO\n// (o LLM não os reescreve), pelo nome da tool; null para a tool não chamada ou que falhou.\n\nfunction gerarFallbackOperador(leitura, limiares, motivo) {\n  const rotulos = limiares.status.rotulos;\n  const val = leitura.validacao;\n  const g = leitura.guardrail;\n\n  if (!val.ok) {\n    const motivos = [];\n    if (val.id_invalido) motivos.push('id_maquina inválido ou fora do padrão');\n    if (!val.maquina_conhecida) motivos.push('máquina desconhecida (' + leitura.id_maquina + ')');\n    if (val.campos_ausentes.length) motivos.push('campo(s) ausente(s): ' + val.campos_ausentes.join(', '));\n    if (val.tipo_invalido.length) motivos.push('tipo inválido em: ' + val.tipo_invalido.join(', '));\n    if (val.fora_faixa_fisica.length) motivos.push('fora da faixa física: ' + val.fora_faixa_fisica.join(', '));\n    const motivoPrincipal = motivos[0] || 'validação falhou';\n    const resumo_operador = ('Dados inconsistentes: ' + motivoPrincipal + '. Verificação humana necessária.').slice(0, 500);\n    const justificativa = (\n      'Verificação humana necessária. Motivo(s): ' + motivos.join('; ') + '. ' +\n      'Guardrail determinístico (config/limiares.json): ' + rotulos[g.status] + '. ' + motivo\n    ).slice(0, 2000);\n    return { resumo_operador, justificativa };\n  }\n\n  if (!g.violacoes.length) {\n    return {\n      resumo_operador: (leitura.id_maquina + ' em ' + rotulos[g.status] + ': nenhuma grandeza fora do limiar.').slice(0, 500),\n      justificativa: (\n        'Guardrail determinístico avaliou todas as grandezas dentro dos limiares configurados ' +\n        '(config/limiares.json). Status: ' + rotulos[g.status] + '. ' + motivo\n      ).slice(0, 2000),\n    };\n  }\n\n  const partes = g.violacoes.map((v) => v.grandeza + ' ' + v.valor + ' (limite ' + v.limite + ', ' + rotulos[v.status] + ')');\n  const resumo_operador = (leitura.id_maquina + ' em ' + rotulos[g.status] + ': ' + partes.join('; ') + '.').slice(0, 500);\n  const justificativa = (\n    'Guardrail determinístico (config/limiares.json) classificou ' + leitura.id_maquina + ' como ' + rotulos[g.status] + '. ' +\n    'Violações: ' + partes.join('; ') + '. ' +\n    'Especialistas: manutenção=' + rotulos[g.por_especialista.manutencao] +\n    ', produção=' + rotulos[g.por_especialista.producao] +\n    ', energia=' + rotulos[g.por_especialista.energia] + '. ' + motivo\n  ).slice(0, 2000);\n  return { resumo_operador, justificativa };\n}\n\nconst ORDEM = ['NORMAL', 'ATENCAO', 'CRITICO'];\nconst TOOL_PARA_AREA = { especialista_manutencao: 'manutencao', especialista_producao: 'producao', especialista_energia: 'energia' };\nconst ctx = $('Preparar Supervisor').first().json;\nconst limiares = $('Preparar Payload').first().json.limiares;\nconst leitura = ctx.leitura;\nconst j = $input.first().json;\nconst MODELO = $env.GROQ_MODEL_SUPERVISOR || null;\n\nfunction tentaJson(v) {\n  if (typeof v !== 'string') return v;\n  try { return JSON.parse(v); } catch (x) { return v; }\n}\n\n// Extrai o parecer de cada tool de intermediateSteps.\nconst pareceres = { manutencao: null, producao: null, energia: null };\nconst tools_chamadas = [];\nconst passos = Array.isArray(j.intermediateSteps) ? j.intermediateSteps : [];\nfor (const p of passos) {\n  const a = (p && p.action) || {};\n  const area = TOOL_PARA_AREA[a.tool || a.name];\n  if (!area) continue;\n  tools_chamadas.push(a.tool || a.name);\n  let obs = tentaJson(p.observation);\n  // observation = string JSON de uma LISTA de itens ([{...}]); desembrulha.\n  if (Array.isArray(obs) && obs.length === 1) obs = obs[0];\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.json && typeof obs.json === 'object' && Object.keys(obs).length === 1) obs = obs.json;\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.response !== undefined && Object.keys(obs).length === 1) obs = tentaJson(obs.response);\n  const parecer = obs && typeof obs === 'object' ? obs.parecer : null;\n  if (parecer && typeof parecer === 'object' && !Array.isArray(parecer) && ORDEM.includes(parecer.status)) pareceres[area] = parecer;\n}\n\nlet modo;\nlet motivo;\nlet status_llm = null;\nlet resumo_operador;\nlet justificativa;\nlet modelo = null;\nlet erro = null;\n\nif (j.chamar_llm === false) {\n  modo = 'sem_llm';\n  motivo = ctx.motivo_sem_llm === 'atalho'\n    ? 'Supervisor LLM não acionado: id_maquina inválido ou máquina desconhecida, sem o que diagnosticar (atalho sem LLM); decisão exige verificação humana.'\n    : 'Supervisor LLM não acionado (usar_llm=false, modo de teste determinístico do guardrail).';\n} else if (j.falha_llm === true) {\n  modo = 'falha';\n  erro = String(j.erro_msg || 'erro desconhecido').slice(0, 200);\n  motivo = 'Supervisor LLM indisponível após ' + j.tentativa + ' tentativa(s) (' + erro + '); decisão apoiada no guardrail e nos pareceres disponíveis.';\n} else {\n  let out = tentaJson(j.output);\n  if (typeof out === 'string') out = tentaJson(out);\n  const valido = out && typeof out === 'object' && !Array.isArray(out)\n    && ORDEM.includes(out.status)\n    && typeof out.resumo_operador === 'string' && out.resumo_operador.trim().length > 0\n    && typeof out.justificativa === 'string' && out.justificativa.trim().length > 0;\n  if (valido) {\n    modo = 'llm';\n    status_llm = out.status;\n    resumo_operador = out.resumo_operador.trim().slice(0, 500);\n    justificativa = out.justificativa.trim().slice(0, 2000);\n    modelo = MODELO;\n  } else {\n    modo = 'falha';\n    erro = 'saída do supervisor vazia ou fora do formato';\n    motivo = 'Supervisor LLM devolveu ' + erro + '; decisão apoiada no guardrail e nos pareceres disponíveis.';\n  }\n}\n\nif (modo !== 'llm') {\n  const fb = gerarFallbackOperador(leitura, limiares, motivo);\n  resumo_operador = fb.resumo_operador;\n  justificativa = fb.justificativa;\n}\n\nreturn [{\n  json: {\n    leitura,\n    status_llm,\n    pareceres,\n    resumo_operador,\n    justificativa,\n    modelo,\n    inicio_ms: ctx.inicio_ms,\n    supervisor: { modo, erro, tools_chamadas },\n  },\n}];"
+      },
+      "id": "c5200000-0000-4000-8000-000000000020",
+      "name": "Resultado Supervisor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
         0
       ]
     }
@@ -327,18 +647,7 @@
       "main": [
         [
           {
-            "node": "SUPERVISOR (stub)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "SUPERVISOR (stub)": {
-      "main": [
-        [
-          {
-            "node": "Consolidar",
+            "node": "Preparar Supervisor",
             "type": "main",
             "index": 0
           }
@@ -402,6 +711,159 @@
           {
             "node": "Retornar Decisao",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Supervisor": {
+      "main": [
+        [
+          {
+            "node": "Chamar LLM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar LLM?": {
+      "main": [
+        [
+          {
+            "node": "Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resultado Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supervisor": {
+      "main": [
+        [
+          {
+            "node": "Resultado Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classificar Erro Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificar Erro Supervisor": {
+      "main": [
+        [
+          {
+            "node": "Retentar Supervisor?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retentar Supervisor?": {
+      "main": [
+        [
+          {
+            "node": "Esperar 429 Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resultado Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar 429 Supervisor": {
+      "main": [
+        [
+          {
+            "node": "Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resultado Supervisor": {
+      "main": [
+        [
+          {
+            "node": "Consolidar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Supervisor": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Supervisor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parser Supervisor": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Supervisor",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "especialista_manutencao": {
+      "ai_tool": [
+        [
+          {
+            "node": "Supervisor",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "especialista_producao": {
+      "ai_tool": [
+        [
+          {
+            "node": "Supervisor",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "especialista_energia": {
+      "ai_tool": [
+        [
+          {
+            "node": "Supervisor",
+            "type": "ai_tool",
             "index": 0
           }
         ]

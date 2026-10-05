@@ -44,7 +44,8 @@ function getArg(name, def) {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : def;
 }
 const BASE_URL = getArg('--base-url', 'http://localhost:5678');
-const URL = `${BASE_URL}/webhook/cp5/avaliar?origem=validacao`;
+// llm=0: caminho determinístico (supervisor LLM desligado), o piso do guardrail é o status final.
+const URL = `${BASE_URL}/webhook/cp5/avaliar?origem=validacao&llm=0`;
 
 function carregarJson(p) {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -83,7 +84,7 @@ async function postCenario(payload, origemQuery) {
   const headers = typeof payload === 'string'
     ? { 'Content-Type': 'text/plain' }
     : { 'Content-Type': 'application/json' };
-  const resp = await fetch(`${BASE_URL}/webhook/cp5/avaliar?origem=${encodeURIComponent(origemQuery)}`, {
+  const resp = await fetch(`${BASE_URL}/webhook/cp5/avaliar?origem=${encodeURIComponent(origemQuery)}&llm=0`, {
     method: 'POST',
     headers,
     body,
