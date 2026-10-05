@@ -184,59 +184,21 @@
     },
     {
       "parameters": {
-        "name": "consultar_historico",
-        "description": "Consulta no banco o histórico de uma grandeza de uma máquina e devolve estatísticas (amostras, média, desvio padrão, mínimo, máximo, primeiro, último, variacao_percentual) e a tendência (alta, baixa ou estavel). Use para saber se um valor é pontual ou está subindo/caindo. Não invente nada além do que ela devolver. Se ok=false, leia o campo erro.",
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "wf-cp5-40-tool-historico"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "id_maquina": "={{ $fromAI('id_maquina', 'ID da máquina, exatamente como aparece na leitura, ex. MOTOR_01', 'string') }}",
-            "grandeza": "={{ $fromAI('grandeza', 'Uma de: temperatura, vibracao, corrente, taxa_producao, fator_potencia, eficiencia', 'string') }}",
-            "janela_min": "={{ $fromAI('janela_min', 'Janela em minutos, de 10 a 1440 (use 120)', 'number') }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "id_maquina",
-              "displayName": "id_maquina",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "grandeza",
-              "displayName": "grandeza",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "janela_min",
-              "displayName": "janela_min",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number"
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
+        "endpointUrl": "http://localhost:5678/mcp/cp5",
+        "serverTransport": "httpStreamable",
+        "authentication": "none",
+        "include": "selected",
+        "includeTools": [
+          "consultar_historico"
+        ],
+        "options": {
+          "timeout": 60000
         }
       },
       "id": "c4200010-0000-4000-8000-000000000010",
-      "name": "consultar_historico",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.1,
+      "name": "MCP Client CP5",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.4,
       "position": [
         -640,
         240
@@ -246,7 +208,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Pós-processamento DETERMINÍSTICO (o LLM opina, o n8n garante):\n//   1) força parecer.especialista = área da variante;\n//   2) piso: status nunca abaixo de leitura.guardrail.por_especialista[área];\n//   3) meta: modelo, latência, chamadas de tool e checagem anti-alucinação.\nconst ctx = $('Validar Entrada').first().json;\nconst AREA = ctx.area;\nconst leitura = ctx.leitura;\nconst ORDEM = ['NORMAL', 'ATENCAO', 'CRITICO'];\nconst saidaAgente = $input.first().json;\n\n// Tentativas do agente: cada falha de rate limit passou por \"Classificar Erro\" (que grava\n// tentativa = nº de tentativas já feitas); a bem-sucedida é a seguinte.\nlet tentativas = 1;\ntry {\n  const ult = $('Classificar Erro').last();\n  if (ult && ult.json && Number.isFinite(ult.json.tentativa)) tentativas = ult.json.tentativa + 1;\n} catch (x) { /* nó não executou: 1ª tentativa deu certo */ }\n\nfunction tentaJson(v) {\n  if (typeof v !== 'string') return v;\n  try { return JSON.parse(v); } catch (x) { return v; }\n}\n// O agente devolve { output: {...parecer...}, intermediateSteps: [...] }.\nlet parecer = tentaJson(saidaAgente.output);\nif (!parecer || typeof parecer !== 'object' || Array.isArray(parecer)) {\n  return [{ json: { via_webhook: ctx.via_webhook, saida: {\n    area: AREA, parecer: null,\n    meta: { modelo: ($env.GROQ_MODEL___AREA_UP__ || $env.GROQ_MODEL_ESPECIALISTA || null), latencia_ms: Date.now() - ctx.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, tentativas, erro: 'saída do agente sem parecer estruturado' },\n  } } }];\n}\nparecer = JSON.parse(JSON.stringify(parecer));\n\n// 1) especialista forçado\nparecer.especialista = AREA;\n\n// 2) piso do guardrail\nconst piso = leitura.guardrail.por_especialista[AREA];\nlet piso_aplicado = false;\nif (ORDEM.indexOf(parecer.status) < ORDEM.indexOf(piso)) {\n  parecer.status = piso;\n  piso_aplicado = true;\n}\n\n// 3a) chamadas de tool (de intermediateSteps)\nconst passos = Array.isArray(saidaAgente.intermediateSteps) ? saidaAgente.intermediateSteps : [];\nconst tool_calls = [];\nconst permitidos = []; // números rastreáveis\n\nfunction coletar(obj) {\n  if (typeof obj === 'number' && Number.isFinite(obj)) { permitidos.push(obj); return; }\n  if (Array.isArray(obj)) { obj.forEach(coletar); return; }\n  if (obj && typeof obj === 'object') Object.values(obj).forEach(coletar);\n}\n\nfor (const p of passos) {\n  const a = (p && p.action) || {};\n  const nome = a.tool || a.name || null;\n  if (nome !== 'consultar_historico') continue;\n  let entrada = tentaJson(a.toolInput);\n  if (entrada && typeof entrada === 'object' && entrada.input !== undefined && Object.keys(entrada).length === 1) entrada = tentaJson(entrada.input);\n  let obs = tentaJson(p.observation);\n  // O agente entrega a resposta da tool como string JSON de uma LISTA de itens ([{...}]).\n  if (Array.isArray(obs) && obs.length === 1) obs = obs[0];\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.json && typeof obs.json === 'object' && Object.keys(obs).length === 1) obs = obs.json;\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.response !== undefined && Object.keys(obs).length === 1) obs = tentaJson(obs.response);\n  const chamada = {\n    tool: nome,\n    entrada: (entrada && typeof entrada === 'object') ? {\n      id_maquina: entrada.id_maquina ?? null, grandeza: entrada.grandeza ?? null, janela_min: entrada.janela_min ?? null,\n    } : { bruto: String(entrada).slice(0, 200) },\n  };\n  if (obs && typeof obs === 'object') {\n    chamada.saida = {\n      ok: obs.ok ?? null, amostras: obs.amostras ?? null, media: obs.media ?? null, desvio_padrao: obs.desvio_padrao ?? null,\n      minimo: obs.minimo ?? null, maximo: obs.maximo ?? null, primeiro: obs.primeiro ?? null, ultimo: obs.ultimo ?? null,\n      variacao_percentual: obs.variacao_percentual ?? null, tendencia: obs.tendencia ?? null,\n      suficiente_para_tendencia: obs.suficiente_para_tendencia ?? null,\n    };\n    if (obs.ok === false) chamada.saida.erro = obs.erro ?? null;\n  } else {\n    chamada.saida = { bruto: String(obs).slice(0, 300) };\n  }\n  tool_calls.push(chamada);\n  coletar(entrada);\n  coletar(obs);\n}\n\n// 3b) anti-alucinação: números citados que não existem na leitura, nominais, limites ou tools\ncoletar(leitura.valores);\ncoletar(leitura.nominais);\nconst viol = (leitura.guardrail && Array.isArray(leitura.guardrail.violacoes)) ? leitura.guardrail.violacoes : [];\nfor (const v of viol) { coletar(v.limite); coletar(v.valor); }\n\nconst rastreavel = (x) => permitidos.some((n) => Math.abs(n - x) <= 0.0100001);\nconst valores_nao_rastreaveis = [];\nconst achados = Array.isArray(parecer.achados) ? parecer.achados : [];\nachados.forEach((a, i) => {\n  if (a && typeof a.valor === 'number' && !rastreavel(a.valor)) valores_nao_rastreaveis.push({ campo: 'achados[' + i + '].valor', valor: a.valor });\n});\nif (parecer.tendencia && typeof parecer.tendencia === 'object') {\n  for (const [k, v] of Object.entries(parecer.tendencia)) {\n    if (typeof v === 'number' && !rastreavel(v)) valores_nao_rastreaveis.push({ campo: 'tendencia.' + k, valor: v });\n  }\n}\n\nconst meta = {\n  modelo: ($env.GROQ_MODEL___AREA_UP__ || $env.GROQ_MODEL_ESPECIALISTA || null),\n  latencia_ms: Date.now() - ctx.t0,\n  tool_calls,\n  valores_nao_rastreaveis,\n  piso_aplicado,\n  tentativas,\n  erro: null,\n};\nreturn [{ json: { via_webhook: ctx.via_webhook, saida: { area: AREA, parecer, meta } } }];"
+        "jsCode": "// Pós-processamento DETERMINÍSTICO (o LLM opina, o n8n garante):\n//   1) força parecer.especialista = área da variante;\n//   2) piso: status nunca abaixo de leitura.guardrail.por_especialista[área];\n//   3) meta: modelo, latência, chamadas de tool e checagem anti-alucinação.\nconst ctx = $('Validar Entrada').first().json;\nconst AREA = ctx.area;\nconst leitura = ctx.leitura;\nconst ORDEM = ['NORMAL', 'ATENCAO', 'CRITICO'];\nconst saidaAgente = $input.first().json;\n\n// Tentativas do agente: cada falha de rate limit passou por \"Classificar Erro\" (que grava\n// tentativa = nº de tentativas já feitas); a bem-sucedida é a seguinte.\nlet tentativas = 1;\ntry {\n  const ult = $('Classificar Erro').last();\n  if (ult && ult.json && Number.isFinite(ult.json.tentativa)) tentativas = ult.json.tentativa + 1;\n} catch (x) { /* nó não executou: 1ª tentativa deu certo */ }\n\nfunction tentaJson(v) {\n  if (typeof v !== 'string') return v;\n  try { return JSON.parse(v); } catch (x) { return v; }\n}\n// O agente devolve { output: {...parecer...}, intermediateSteps: [...] }.\nlet parecer = tentaJson(saidaAgente.output);\nif (!parecer || typeof parecer !== 'object' || Array.isArray(parecer)) {\n  return [{ json: { via_webhook: ctx.via_webhook, saida: {\n    area: AREA, parecer: null,\n    meta: { modelo: ($env.GROQ_MODEL___AREA_UP__ || $env.GROQ_MODEL_ESPECIALISTA || null), latencia_ms: Date.now() - ctx.t0, tool_calls: [], valores_nao_rastreaveis: [], piso_aplicado: false, tentativas, erro: 'saída do agente sem parecer estruturado' },\n  } } }];\n}\nparecer = JSON.parse(JSON.stringify(parecer));\n\n// 1) especialista forçado\nparecer.especialista = AREA;\n\n// 2) piso do guardrail\nconst piso = leitura.guardrail.por_especialista[AREA];\nlet piso_aplicado = false;\nif (ORDEM.indexOf(parecer.status) < ORDEM.indexOf(piso)) {\n  parecer.status = piso;\n  piso_aplicado = true;\n}\n\n// 3a) chamadas de tool (de intermediateSteps)\nconst passos = Array.isArray(saidaAgente.intermediateSteps) ? saidaAgente.intermediateSteps : [];\nconst tool_calls = [];\nconst permitidos = []; // números rastreáveis\n\nfunction coletar(obj) {\n  if (typeof obj === 'number' && Number.isFinite(obj)) { permitidos.push(obj); return; }\n  if (Array.isArray(obj)) { obj.forEach(coletar); return; }\n  if (obj && typeof obj === 'object') Object.values(obj).forEach(coletar);\n}\n\nfor (const p of passos) {\n  const a = (p && p.action) || {};\n  const nome = a.tool || a.name || null;\n  // Via MCP Client o nome chega prefixado com o nó: MCP_Client_CP5_consultar_historico.\n  if (!nome || !/(^|_)consultar_historico$/.test(nome)) continue;\n  let entrada = tentaJson(a.toolInput);\n  if (entrada && typeof entrada === 'object' && entrada.input !== undefined && Object.keys(entrada).length === 1) entrada = tentaJson(entrada.input);\n  let obs = tentaJson(p.observation);\n  // O agente entrega a resposta da tool como string JSON de uma LISTA de itens ([{...}]).\n  if (Array.isArray(obs) && obs.length === 1) obs = obs[0];\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.json && typeof obs.json === 'object' && Object.keys(obs).length === 1) obs = obs.json;\n  if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.response !== undefined && Object.keys(obs).length === 1) obs = tentaJson(obs.response);\n  // Via MCP a resposta vem no formato de conteúdo do protocolo, [{type:'text', text:'[{...}]'}]:\n  // junta os textos, parseia e desembrulha a lista de itens do n8n de novo.\n  if (Array.isArray(obs) && obs.length && obs.every((x) => x && x.type === 'text' && typeof x.text === 'string')) {\n    obs = tentaJson(obs.map((x) => x.text).join(''));\n    if (Array.isArray(obs) && obs.length === 1) obs = obs[0];\n    if (obs && typeof obs === 'object' && !Array.isArray(obs) && obs.json && typeof obs.json === 'object' && Object.keys(obs).length === 1) obs = obs.json;\n  }\n  const chamada = {\n    tool: nome,\n    entrada: (entrada && typeof entrada === 'object') ? {\n      id_maquina: entrada.id_maquina ?? null, grandeza: entrada.grandeza ?? null, janela_min: entrada.janela_min ?? null,\n    } : { bruto: String(entrada).slice(0, 200) },\n  };\n  if (obs && typeof obs === 'object') {\n    chamada.saida = {\n      ok: obs.ok ?? null, amostras: obs.amostras ?? null, media: obs.media ?? null, desvio_padrao: obs.desvio_padrao ?? null,\n      minimo: obs.minimo ?? null, maximo: obs.maximo ?? null, primeiro: obs.primeiro ?? null, ultimo: obs.ultimo ?? null,\n      variacao_percentual: obs.variacao_percentual ?? null, tendencia: obs.tendencia ?? null,\n      suficiente_para_tendencia: obs.suficiente_para_tendencia ?? null,\n    };\n    if (obs.ok === false) chamada.saida.erro = obs.erro ?? null;\n  } else {\n    chamada.saida = { bruto: String(obs).slice(0, 300) };\n  }\n  tool_calls.push(chamada);\n  coletar(entrada);\n  coletar(obs);\n}\n\n// 3b) anti-alucinação: números citados que não existem na leitura, nominais, limites ou tools\ncoletar(leitura.valores);\ncoletar(leitura.nominais);\nconst viol = (leitura.guardrail && Array.isArray(leitura.guardrail.violacoes)) ? leitura.guardrail.violacoes : [];\nfor (const v of viol) { coletar(v.limite); coletar(v.valor); }\n\nconst rastreavel = (x) => permitidos.some((n) => Math.abs(n - x) <= 0.0100001);\nconst valores_nao_rastreaveis = [];\nconst achados = Array.isArray(parecer.achados) ? parecer.achados : [];\nachados.forEach((a, i) => {\n  if (a && typeof a.valor === 'number' && !rastreavel(a.valor)) valores_nao_rastreaveis.push({ campo: 'achados[' + i + '].valor', valor: a.valor });\n});\nif (parecer.tendencia && typeof parecer.tendencia === 'object') {\n  for (const [k, v] of Object.entries(parecer.tendencia)) {\n    if (typeof v === 'number' && !rastreavel(v)) valores_nao_rastreaveis.push({ campo: 'tendencia.' + k, valor: v });\n  }\n}\n\nconst meta = {\n  modelo: ($env.GROQ_MODEL___AREA_UP__ || $env.GROQ_MODEL_ESPECIALISTA || null),\n  latencia_ms: Date.now() - ctx.t0,\n  tool_calls,\n  valores_nao_rastreaveis,\n  piso_aplicado,\n  tentativas,\n  erro: null,\n};\nreturn [{ json: { via_webhook: ctx.via_webhook, saida: { area: AREA, parecer, meta } } }];"
       },
       "id": "c42011-0000-4000-8000-000000000011",
       "name": "Pos-processar Parecer",
@@ -525,17 +487,6 @@
         ]
       ]
     },
-    "consultar_historico": {
-      "ai_tool": [
-        [
-          {
-            "node": "Agente Especialista",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Pos-processar Parecer": {
       "main": [
         [
@@ -622,6 +573,17 @@
           {
             "node": "Agente Especialista",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Client CP5": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente Especialista",
+            "type": "ai_tool",
             "index": 0
           }
         ]
