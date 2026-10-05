@@ -84,7 +84,7 @@ flowchart LR
 |---|---|
 | **Mosquitto** | Broker MQTT local com usuário e senha. Telemetria em `fabrica/{id}/sensores`; online/offline (LWT) em `fabrica/{id}/status`. |
 | **n8n 2.40** | Orquestrador: escuta, valida, chama os agentes, grava e aciona. O n8n não é o agente; ele hospeda os agentes. |
-| **Groq** | LLMs do plano gratuito. O supervisor usa `openai/gpt-oss-120b`; os especialistas usam `gpt-oss-20b` e `qwen3`, para não estourar o limite de tokens por minuto, que é por modelo. |
+| **Groq** | LLMs do plano gratuito. O supervisor usa `openai/gpt-oss-120b`. Os especialistas rodam em paralelo, então cada um usa um modelo diferente (Manutenção `gpt-oss-20b`, Produção `qwen3`, Energia `gpt-oss-120b`, que fica livre enquanto o supervisor espera), porque o limite de tokens por minuto é por modelo. |
 | **MySQL 8.4** | Memória confiável do sistema: leituras, decisões, ações e o histórico que os agentes consultam. |
 
 ### O caminho de uma leitura
@@ -336,7 +336,7 @@ docs/        enunciado, evidências e reflexão
 
 ## Limitações conhecidas
 
-- **Plano gratuito do Groq:** 8 000 tokens por minuto por modelo e 1 000 requisições por dia. Uma avaliação completa faz de 4 a 10 chamadas e leva cerca de 1 minuto. Em produção seria preciso um plano pago ou um modelo local.
+- **Plano gratuito do Groq:** 8 000 tokens por minuto por modelo e 1 000 requisições por dia. Uma avaliação completa faz de 4 a 10 chamadas e leva de 1 a 3 minutos, porque o sistema espera e tenta de novo quando recebe 429. Cada modelo tem ainda um teto de 200 000 tokens por dia, que em 05/10 se esgotou no `gpt-oss-20b` depois de cerca de 10 avaliações com novas tentativas. Em produção seria preciso um plano pago ou um modelo local.
 - **E-mail na rede da FIAP:** as portas SMTP (465/587) são bloqueadas no laboratório; o envio real foi testado em outra rede.
 - **Simulação:** os dados vêm de um simulador. As correntes nominais (15 A e 10 A) são valores de exemplo.
 - **Não substitui o CLP:** o sistema recomenda e avisa; desligar a máquina continua sendo papel do intertravamento físico.
