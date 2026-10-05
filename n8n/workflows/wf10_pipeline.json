@@ -301,7 +301,7 @@
       "name": "Supervisor",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
-      "onError": "continueErrorOutput",
+      "onError": "continueRegularOutput",
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 5000,
@@ -502,7 +502,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Classifica o erro do agente supervisor. Rate limit (429 / \"too many requests\" / \"rate limit\" / TPM)\n// com menos de 3 tentativas => espera ativa e volta ao supervisor (o \"try again in Xs\" da mensagem,\n// entre 10 e 60 s; sem sugestão, 30 s). Outro erro, ou a 3ª tentativa => falha_llm (fallback determinístico).\n// $runIndex = nº de vezes que ESTE nó já rodou nesta execução = falhas anteriores do agente.\nconst MAX_TENTATIVAS = 3;\nconst bruto = $input.first().json;\nconst err = bruto && bruto.error !== undefined ? bruto.error : bruto;\nlet msg = err;\nif (msg && typeof msg === 'object') msg = msg.message || msg.description || JSON.stringify(msg);\nmsg = String(msg === undefined || msg === null ? 'erro desconhecido' : msg);\n\nlet detalhe = '';\ntry {\n  if (err && typeof err === 'object') {\n    detalhe = [err.message, err.description, err.cause && err.cause.message, JSON.stringify(err).slice(0, 3000)].filter(Boolean).join(' | ');\n  }\n} catch (x) { /* ignora */ }\nconst texto = msg + ' | ' + detalhe;\n\nconst ehRateLimit = /\\b(429|500|502|503|504)\\b|too many requests|rate.?limit|tokens per minute|requests per minute|service unavailable|overloaded|bad gateway|timed? ?out|ECONNRESET/i.test(texto);\nconst tentativa = $runIndex + 1;\n\nlet espera_s = 30;\nconst m = texto.match(/try again in\\s+(?:(\\d+)m)?\\s*([\\d.]+)\\s*s\\b/i);\nif (m) espera_s = Math.min(60, Math.max(10, Math.ceil(Number(m[1] || 0) * 60 + Number(m[2])) + 1));\n\n// Carrega o contexto (prompt_usuario etc.): o Wait devolve ESTE item ao agente.\nconst ctx = $('Preparar Supervisor').first().json;\nreturn [{ json: {\n  ...ctx,\n  retentar: ehRateLimit && tentativa < MAX_TENTATIVAS,\n  falha_llm: true,\n  rate_limit: ehRateLimit,\n  tentativa,\n  espera_s,\n  erro_msg: msg.slice(0, 500),\n} }];"
+        "jsCode": "// Classifica o erro do agente supervisor. Rate limit (429 / \"too many requests\" / \"rate limit\" / TPM)\n// com menos de 3 tentativas => espera ativa e volta ao supervisor (o \"try again in Xs\" da mensagem,\n// entre 10 e 60 s; sem sugestão, 30 s). Outro erro, ou a 3ª tentativa => falha_llm (fallback determinístico).\n// $runIndex = nº de vezes que ESTE nó já rodou nesta execução = falhas anteriores do agente.\nconst MAX_TENTATIVAS = 3;\nconst bruto = $input.first().json;\nconst err = bruto && bruto.error !== undefined ? bruto.error : bruto;\nlet msg = err;\nif (msg && typeof msg === 'object') msg = msg.message || msg.description || JSON.stringify(msg);\nmsg = String(msg === undefined || msg === null ? 'erro desconhecido' : msg);\n\nlet detalhe = '';\ntry {\n  if (err && typeof err === 'object') {\n    detalhe = [err.message, err.description, err.cause && err.cause.message, JSON.stringify(err).slice(0, 3000)].filter(Boolean).join(' | ');\n  }\n} catch (x) { /* ignora */ }\nconst texto = msg + ' | ' + detalhe;\n\nconst ehRateLimit = /\\b(429|500|502|503|504)\\b|too many requests|tool call validation|rate.?limit|tokens per minute|requests per minute|service unavailable|overloaded|bad gateway|timed? ?out|ECONNRESET/i.test(texto);\nconst tentativa = $runIndex + 1;\n\nlet espera_s = 30;\nconst m = texto.match(/try again in\\s+(?:(\\d+)m)?\\s*([\\d.]+)\\s*s\\b/i);\nif (m) espera_s = Math.min(60, Math.max(10, Math.ceil(Number(m[1] || 0) * 60 + Number(m[2])) + 1));\n\n// Carrega o contexto (prompt_usuario etc.): o Wait devolve ESTE item ao agente.\nconst ctx = $('Preparar Supervisor').first().json;\nreturn [{ json: {\n  ...ctx,\n  retentar: ehRateLimit && tentativa < MAX_TENTATIVAS,\n  falha_llm: true,\n  rate_limit: ehRateLimit,\n  tentativa,\n  espera_s,\n  erro_msg: msg.slice(0, 500),\n} }];"
       },
       "id": "c51d0000-0000-4000-8000-00000000001d",
       "name": "Classificar Erro Supervisor",
@@ -573,6 +573,37 @@
       "position": [
         700,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error !== undefined && $json.output === undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c51e0000-0000-4000-8000-0000000000f1",
+      "name": "Supervisor Falhou?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        400,
+        -40
       ]
     }
   ],
@@ -749,14 +780,7 @@
       "main": [
         [
           {
-            "node": "Resultado Supervisor",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Classificar Erro Supervisor",
+            "node": "Supervisor Falhou?",
             "type": "main",
             "index": 0
           }
@@ -864,6 +888,24 @@
           {
             "node": "Supervisor",
             "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supervisor Falhou?": {
+      "main": [
+        [
+          {
+            "node": "Classificar Erro Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resultado Supervisor",
+            "type": "main",
             "index": 0
           }
         ]
