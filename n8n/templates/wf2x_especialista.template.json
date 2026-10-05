@@ -149,7 +149,7 @@
         "model": "={{ $env.GROQ_MODEL___AREA_UP__ || $env.GROQ_MODEL_ESPECIALISTA }}",
         "options": {
           "temperature": 0.1,
-          "maxTokensToSample": 4096
+          "maxTokensToSample": "={{ String($env.GROQ_MODEL___AREA_UP__ || $env.GROQ_MODEL_ESPECIALISTA).startsWith('qwen') ? 1000 : 4096 }}"
         }
       },
       "id": "c4200008-0000-4000-8000-000000000008",
