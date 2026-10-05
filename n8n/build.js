@@ -48,7 +48,9 @@
  * O system prompt = prompts/<area>.md (sem a linha "<!-- concatenar: ... -->")
  * + linha em branco + prompts/especialista_base.md a partir do primeiro "---".
  * O schema = contracts/especialista.schema.json sem $schema/$id.
- * Templates sem variantes seguem o caminho antigo (saída idêntica).
+ * Templates sem variantes seguem o caminho antigo (saída idêntica), exceto pelo marcador
+ * global __SUPERVISOR_PROMPT__ (T12: prompts/supervisor.md no WF-10) e por __AREA_UP__
+ * (T11b: GROQ_MODEL_<AREA> nos especialistas).
  *
  * Sem dependências além dos módulos nativos do Node (fs, path).
  * =============================================================================
@@ -152,6 +154,20 @@ function substituirMarcadores(obj, mapa) {
   return obj;
 }
 
+
+// ---------------------------------------------------------------------------
+// Marcadores globais (T12): __SUPERVISOR_PROMPT__ = prompts/supervisor.md (inteiro).
+// Mesma técnica das variantes: troca só nos valores string do objeto parseado.
+// Só lê o arquivo quando o template usa o marcador.
+// ---------------------------------------------------------------------------
+function substituirMarcadoresGlobais(wf) {
+  const usa = JSON.stringify(wf).includes('__SUPERVISOR_PROMPT__');
+  if (!usa) return wf;
+  const prompt = fs.readFileSync(path.join(ROOT, 'prompts', 'supervisor.md'), 'utf8').replace(/\r\n/g, '\n').trim();
+  if (!prompt) throw new Error('build.js: prompts/supervisor.md vazio');
+  return substituirMarcadores(wf, { __SUPERVISOR_PROMPT__: prompt });
+}
+
 function main() {
   const guardrailSource = lerGuardrailSource();
 
@@ -186,6 +202,7 @@ function main() {
           nome: v.arquivo,
           wf: substituirMarcadores(wf, {
             __AREA__: v.area,
+            __AREA_UP__: v.area.toUpperCase(), // GROQ_MODEL_<AREA> (T11b)
             __WF_ID__: v.id,
             __WF_NOME__: v.nome,
             __WEBHOOK_ID__: v.webhookId,
@@ -193,7 +210,7 @@ function main() {
             __SCHEMA_ESPECIALISTA__: lerSchemaEspecialista(),
           }),
         }))
-      : [{ nome: file.replace(/\.template\.json$/, '.json'), wf }];
+      : [{ nome: file.replace(/\.template\.json$/, '.json'), wf: substituirMarcadoresGlobais(wf) }];
 
     for (const saida of saidas) {
       const nosInjetados = processarWorkflow(saida.wf, guardrailSource);
