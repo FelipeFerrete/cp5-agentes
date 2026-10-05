@@ -45,7 +45,6 @@ Nos casos em que o LLM falhou, nenhuma invariante rígida quebrou: a situação,
 
 - **Golden set completo com LLM em 3 rodadas.** Precisa de uma chave do Groq com cota diária cheia. Comando: `node tests/run_validation.js --rodadas 3 --intervalo 60`.
 - **Escalada por tendência (C07) com o LLM.** Em versões anteriores o especialista de Manutenção escalou citando a alta de 19,6 % em 2 h, mas isso não foi medido de novo hoje por falta de cota.
-- **Envio real** para Telegram, e-mail e Trello (`DRY_RUN=false`). Fica para a gravação do vídeo.
 
 ## 5. Limites do plano gratuito do Groq vistos hoje
 
@@ -56,3 +55,16 @@ Nos casos em que o LLM falhou, nenhuma invariante rígida quebrou: a situação,
 | `qwen/qwen3.8-27b` | 7 000 (entrada) | não atingido | 1 000 |
 
 Os testes do dia esgotaram o limite diário dos dois `gpt-oss` em umas 10 avaliações com novas tentativas. Para uma demonstração, use uma chave com a cota cheia e espere 1 a 2 minutos entre um cenário e outro.
+
+## 6. Envio real (`DRY_RUN=false`)
+
+Às 15:00, com `?llm=0` (os canais não dependem do LLM), o C11 e o C03 foram enviados de verdade. Linhas gravadas em `acoes_log`:
+
+| Cenário | Decisão | Canal | dry_run | sucesso |
+|---|---|---|---|---|
+| C03 (FP 0,65) | 70 | Telegram | 0 | 1 |
+| C03 (FP 0,65) | 70 | E-mail | 0 | 1 |
+| C11 (85 °C) | 71 | Telegram | 0 | 1 |
+| C11 (85 °C) | 71 | Trello | 0 | 1 |
+
+Os prints da mensagem no Telegram, do e-mail e do card no Trello entram nesta pasta junto com o vídeo. Depois do teste, `DRY_RUN` voltou para `true`.
