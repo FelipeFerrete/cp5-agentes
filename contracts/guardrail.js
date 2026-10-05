@@ -121,20 +121,83 @@ function guardrail(leitura, limiares) {
  * Consolida a resposta do Supervisor (LLM) com o guardrail.
  * statusLlm pode ser null (LLM não chamado ou falhou).
  * especialistasRequeremHumano: true se algum parecer veio com dados_insuficientes.
+ * pareceres: {manutencao, producao, energia} dos especialistas (ou null); só serve para saber
+ *   QUAL área o LLM escalou para CRÍTICO quando o guardrail não viu violação crítica (tendência).
+ *
+ * Visão do enunciado: situacao = ALERTA se status_final = CRITICO ou requer_humano; os problemas
+ * vêm das violações CRÍTICAS (textos de limiares.problemas) e as ações, da área de cada problema.
  */
-function consolidar(leitura, statusLlm, limiares, especialistasRequeremHumano = false) {
+function consolidar(leitura, statusLlm, limiares, especialistasRequeremHumano = false, pareceres = null) {
   const g = leitura.guardrail;
   const status_llm = ORDEM.includes(statusLlm) ? statusLlm : null;
   const requer_humano = g.requer_humano || !!especialistasRequeremHumano;
   let status_final = maxStatus(g.status, status_llm);
   if (requer_humano) status_final = maxStatus(status_final, 'ATENCAO');
 
-  let acoes = [...limiares.acoes_por_status[status_final]];
-  if (requer_humano) acoes = acoes.filter(a => a !== 'TRELLO');
+  const situacao = (status_final === 'CRITICO' || requer_humano) ? 'ALERTA' : 'NORMAL';
+  const problemas = [];
+  if (situacao === 'ALERTA') {
+    for (const v of g.violacoes) {
+      if (v.status !== 'CRITICO') continue;
+      problemas.push({ area: v.especialista, grandeza: v.grandeza, descricao: limiares.problemas[v.grandeza] || v.grandeza, valor: v.valor, limite: v.limite });
+    }
+    if (status_final === 'CRITICO') {
+      // Área escalada pelo LLM (tendência/correlação) sem violação crítica do guardrail nela.
+      for (const area of ['manutencao', 'producao', 'energia']) {
+        const p = pareceres && pareceres[area];
+        if (p && p.status === 'CRITICO' && g.por_especialista[area] !== 'CRITICO') {
+          problemas.push({ area, grandeza: null, descricao: `${limiares.problemas.tendencia} (${area})`, valor: null, limite: null });
+        }
+      }
+      if (!problemas.length) problemas.push({ area: null, grandeza: null, descricao: limiares.problemas.tendencia, valor: null, limite: null });
+    }
+    if (requer_humano) {
+      const val = leitura.validacao;
+      const campos = [...val.campos_ausentes, ...val.tipo_invalido, ...val.fora_faixa_fisica];
+      const motivo = val.id_invalido ? 'id da máquina inválido'
+        : !val.maquina_conhecida ? 'máquina não cadastrada'
+        : campos.length ? campos.join(', ') : 'especialista sem dados suficientes';
+      problemas.push({ area: null, grandeza: null, descricao: `${limiares.problemas.dados} (${motivo})`, valor: null, limite: null });
+    }
+  }
 
-  return { status_guardrail: g.status, status_llm, status_final, sensor_fault: g.sensor_fault, requer_humano, acoes_previstas: acoes };
+  const cfg = limiares.acoes;
+  const set = new Set(situacao === 'ALERTA' ? cfg.alerta : []);
+  for (const p of problemas) for (const a of (p.area && cfg.por_area[p.area]) || []) set.add(a);
+  if (requer_humano) set.delete('TRELLO');
+  const acoes = cfg.ordem.filter(a => set.has(a));
+
+  return {
+    status_guardrail: g.status, status_llm, status_final, sensor_fault: g.sensor_fault, requer_humano,
+    situacao, problemas, recomendacao_padrao: recomendacaoPadrao(situacao, status_final, problemas, limiares),
+    acoes_previstas: acoes,
+  };
+}
+
+/** Recomendação determinística (usada quando o LLM não responde): uma frase por área com problema. */
+function recomendacaoPadrao(situacao, statusFinal, problemas, limiares) {
+  const r = limiares.recomendacoes;
+  if (situacao === 'NORMAL') return statusFinal === 'ATENCAO' ? r.atencao : r.normal;
+  const partes = [];
+  if (problemas.some(p => !p.area && p.descricao.startsWith(limiares.problemas.dados))) partes.push(r.dados);
+  for (const area of ['manutencao', 'energia', 'producao']) if (problemas.some(p => p.area === area)) partes.push(r[area]);
+  return (partes.length ? partes : [r.geral]).join(' ');
+}
+
+/** Texto no formato do enunciado: Máquina / Situação / Problemas identificados / RECOMENDAÇÃO. */
+function relatorioTexto(d) {
+  const linhas = [`Máquina: ${d.id_maquina}`, `Situação: ${d.situacao}`];
+  if (d.problemas && d.problemas.length) {
+    linhas.push('Problemas identificados:');
+    for (const p of d.problemas) {
+      const num = p.valor !== null && p.valor !== undefined ? ` (${p.valor}; limite ${p.limite})` : '';
+      linhas.push(`- ${p.descricao}${num}`);
+    }
+  }
+  linhas.push(`RECOMENDAÇÃO: ${d.recomendacao}`);
+  return linhas.join('\n');
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
 
-module.exports = { ORDEM, ESPECIALISTA_DE, maxStatus, validar, guardrail, consolidar };
+module.exports = { ORDEM, ESPECIALISTA_DE, maxStatus, validar, guardrail, consolidar, recomendacaoPadrao, relatorioTexto };

@@ -1,67 +1,170 @@
 {
-  "versao": "1.0",
-  "descricao": "Limiares do guardrail determinístico e referência injetada nos prompts dos agentes. Fonte única: qualquer mudança de limite acontece só aqui.",
+  "versao": "2.0",
+  "descricao": "Limiares do guardrail determinístico e referência injetada nos prompts dos agentes. Fonte única: qualquer mudança de limite acontece só aqui. Os limites CRÍTICOS de temperatura, vibração, fator de potência e produção são exatamente as condições de ALERTA do enunciado da CP5; ATENÇÃO é um pré-alerta interno, sem ação.",
   "status": {
-    "ordem": ["NORMAL", "ATENCAO", "CRITICO"],
-    "rotulos": { "NORMAL": "NORMAL", "ATENCAO": "ATENÇÃO", "CRITICO": "CRÍTICO" }
+    "ordem": [
+      "NORMAL",
+      "ATENCAO",
+      "CRITICO"
+    ],
+    "rotulos": {
+      "NORMAL": "NORMAL",
+      "ATENCAO": "ATENÇÃO",
+      "CRITICO": "CRÍTICO"
+    }
   },
-  "acoes_por_status": {
-    "NORMAL": [],
-    "ATENCAO": ["TELEGRAM"],
-    "CRITICO": ["TELEGRAM", "EMAIL", "TRELLO"]
+  "situacao": {
+    "_comentario": "Visão do enunciado (NORMAL/ALERTA). ALERTA quando status_final = CRITICO ou quando os dados exigem verificação humana. ATENCAO sozinho continua NORMAL (pré-alerta, sem ação).",
+    "alerta_quando": [
+      "status_final = CRITICO",
+      "requer_humano = true"
+    ]
+  },
+  "acoes": {
+    "_comentario": "Ações por tipo de problema (enunciado, tarefa 6): temperatura/vibração → Telegram; produção/fator de potência → Telegram + E-mail. A OS no Trello para problema mecânico é um extra do projeto. Com requer_humano não há OS no Trello (dado duvidoso não abre ordem de serviço).",
+    "alerta": [
+      "TELEGRAM"
+    ],
+    "por_area": {
+      "manutencao": [
+        "TRELLO"
+      ],
+      "energia": [
+        "EMAIL"
+      ],
+      "producao": [
+        "EMAIL"
+      ]
+    },
+    "ordem": [
+      "TELEGRAM",
+      "EMAIL",
+      "TRELLO"
+    ]
+  },
+  "problemas": {
+    "temperatura": "Temperatura elevada",
+    "vibracao": "Vibração elevada",
+    "fator_potencia": "Fator de potência baixo",
+    "eficiencia": "Produção abaixo do esperado",
+    "tensao": "Tensão fora da faixa",
+    "corrente": "Corrente acima da nominal",
+    "dados": "Dados ausentes ou inválidos",
+    "tendencia": "Tendência de piora identificada pelo agente"
+  },
+  "recomendacoes": {
+    "manutencao": "Realizar inspeção do motor: rolamentos, alinhamento, ventilação e lubrificação.",
+    "energia": "Verificar a instalação elétrica e a correção do fator de potência (banco de capacitores).",
+    "producao": "Verificar a linha de produção: alimentação de insumos, gargalos e ajustes da máquina.",
+    "dados": "Verificar os sensores e a comunicação da máquina antes de qualquer intervenção.",
+    "geral": "Realizar inspeção do motor e verificar as condições de funcionamento.",
+    "atencao": "Sem alerta. Acompanhar os pontos de atenção nas próximas leituras.",
+    "normal": "Nenhuma ação necessária. Manter o monitoramento de rotina."
   },
   "id_maquina_regex": "^[A-Z0-9_]{3,32}$",
   "campos_obrigatorios": [
-    "id_maquina", "temperatura", "vibracao", "tensao", "corrente",
-    "fator_potencia", "taxa_producao", "taxa_producao_esperada"
+    "id_maquina",
+    "temperatura",
+    "vibracao",
+    "tensao",
+    "corrente",
+    "fator_potencia",
+    "taxa_producao",
+    "taxa_producao_esperada"
   ],
   "faixa_fisica": {
     "_comentario": "Fora desta faixa o valor é fisicamente implausível: sensor_fault, requer humano. Não é um limite operacional.",
-    "temperatura": { "min": -40, "max": 200, "unidade": "°C" },
-    "vibracao": { "min": 0, "max": 100, "unidade": "mm/s" },
-    "tensao": { "min": 0, "max": 500, "unidade": "V" },
-    "corrente": { "min": 0, "max": 500, "unidade": "A" },
-    "fator_potencia": { "min": 0, "max": 1, "unidade": "" },
-    "taxa_producao": { "min": 0, "max": 10000, "unidade": "un/h" },
-    "taxa_producao_esperada": { "min": 0.001, "max": 10000, "unidade": "un/h" }
+    "temperatura": {
+      "min": -40,
+      "max": 200,
+      "unidade": "°C"
+    },
+    "vibracao": {
+      "min": 0,
+      "max": 100,
+      "unidade": "mm/s"
+    },
+    "tensao": {
+      "min": 0,
+      "max": 500,
+      "unidade": "V"
+    },
+    "corrente": {
+      "min": 0,
+      "max": 500,
+      "unidade": "A"
+    },
+    "fator_potencia": {
+      "min": 0,
+      "max": 1,
+      "unidade": ""
+    },
+    "taxa_producao": {
+      "min": 0,
+      "max": 10000,
+      "unidade": "un/h"
+    },
+    "taxa_producao_esperada": {
+      "min": 0.001,
+      "max": 10000,
+      "unidade": "un/h"
+    }
   },
   "especialistas": {
     "manutencao": {
       "grandezas": {
         "temperatura": {
-          "regra": "acima", "atencao": 70, "critico": 80, "unidade": "°C",
-          "fonte": "Slide 2 do enunciado (SE temperatura > 80 °C ENTÃO alerta)"
+          "regra": "acima",
+          "atencao": 70,
+          "critico": 80,
+          "unidade": "°C",
+          "fonte": "Enunciado CP5: alerta se temperatura > 80 °C (pré-alerta interno > 70 °C)"
         },
         "vibracao": {
-          "regra": "acima", "atencao": 4.5, "critico": 7.1, "unidade": "mm/s RMS",
-          "fonte": "ISO 10816-3 (aproximação das zonas B/C e C/D)"
+          "regra": "acima",
+          "atencao": 4.5,
+          "critico": 7,
+          "unidade": "mm/s RMS",
+          "fonte": "Enunciado CP5: alerta se vibração > 7 (pré-alerta interno > 4,5 mm/s, ISO 10816-3)"
         }
       }
     },
     "energia": {
       "grandezas": {
         "tensao": {
-          "regra": "desvio_percentual_nominal", "nominal": "tensao_nominal",
-          "atencao": 5, "critico": 10, "unidade": "% de desvio",
+          "regra": "desvio_percentual_nominal",
+          "nominal": "tensao_nominal",
+          "atencao": 5,
+          "critico": 10,
+          "unidade": "% de desvio",
           "fonte": "Faixas de tensão adequada/precária (PRODIST, aproximação)"
         },
         "corrente": {
-          "regra": "percentual_nominal", "nominal": "corrente_nominal",
-          "atencao": 100, "critico": 120, "unidade": "% da nominal",
+          "regra": "percentual_nominal",
+          "nominal": "corrente_nominal",
+          "atencao": 100,
+          "critico": 120,
+          "unidade": "% da nominal",
           "fonte": "Corrente nominal da placa do motor (tabela maquinas)"
         },
         "fator_potencia": {
-          "regra": "abaixo", "atencao": 0.92, "critico": 0.80, "unidade": "",
-          "fonte": "ANEEL: fator de potência de referência 0,92"
+          "regra": "abaixo",
+          "atencao": 0.92,
+          "critico": 0.7,
+          "unidade": "",
+          "fonte": "Enunciado CP5: alerta se fator de potência < 0,70 (pré-alerta interno < 0,92, referência ANEEL)"
         }
       }
     },
     "producao": {
       "grandezas": {
         "eficiencia": {
-          "regra": "abaixo", "atencao": 90, "critico": 70, "unidade": "%",
+          "regra": "abaixo",
+          "atencao": 90,
+          "critico": 80,
+          "unidade": "%",
           "formula": "taxa_producao / taxa_producao_esperada * 100",
-          "fonte": "Critério interno de desempenho da linha"
+          "fonte": "Enunciado CP5: alerta se produção < 80 % da esperada (pré-alerta interno < 90 %)"
         }
       }
     }

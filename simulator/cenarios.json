@@ -17,7 +17,7 @@
   "cenarios": [
     {
       "id": "C01",
-      "descricao": "Tudo nominal",
+      "descricao": "Teste 1 do enunciado: tudo nominal → NORMAL, nenhuma ação",
       "historico": "estavel",
       "payload": {
         "id_maquina": "MOTOR_01",
@@ -32,6 +32,8 @@
       "esperado": {
         "status_guardrail": "NORMAL",
         "status_final_min": "NORMAL",
+        "situacao": "NORMAL",
+        "problemas": [],
         "acoes": [],
         "requer_humano": false,
         "sensor_fault": false
@@ -54,6 +56,14 @@
       "esperado": {
         "status_guardrail": "CRITICO",
         "status_final_min": "CRITICO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Temperatura elevada",
+          "Vibração elevada",
+          "Corrente acima da nominal",
+          "Fator de potência baixo",
+          "Produção abaixo do esperado"
+        ],
         "acoes": [
           "TELEGRAM",
           "EMAIL",
@@ -66,7 +76,7 @@
     },
     {
       "id": "C03",
-      "descricao": "Só energia: fator de potência baixo (0.86), resto nominal",
+      "descricao": "Teste 3 do enunciado (fator de potência): FP 0.65 (< 0,70), resto nominal → ALERTA, Telegram + E-mail",
       "historico": "estavel",
       "payload": {
         "id_maquina": "MOTOR_01",
@@ -74,23 +84,29 @@
         "vibracao": 2,
         "tensao": 220,
         "corrente": 12,
-        "fator_potencia": 0.86,
+        "fator_potencia": 0.65,
         "taxa_producao": 58,
         "taxa_producao_esperada": 60
       },
       "esperado": {
-        "status_guardrail": "ATENCAO",
-        "status_final_min": "ATENCAO",
+        "status_guardrail": "CRITICO",
+        "status_final_min": "CRITICO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Fator de potência baixo"
+        ],
         "acoes": [
-          "TELEGRAM"
+          "TELEGRAM",
+          "EMAIL"
         ],
         "requer_humano": false,
-        "sensor_fault": false
+        "sensor_fault": false,
+        "status_llm_esperado": "CRITICO"
       }
     },
     {
       "id": "C04",
-      "descricao": "Só produção: taxa 48/60 (80%), resto nominal",
+      "descricao": "Teste 3 do enunciado (produção): taxa 42/60 = 70 % (< 80 %), resto nominal → ALERTA, Telegram + E-mail",
       "historico": "estavel",
       "payload": {
         "id_maquina": "MOTOR_01",
@@ -99,17 +115,23 @@
         "tensao": 220,
         "corrente": 12,
         "fator_potencia": 0.95,
-        "taxa_producao": 48,
+        "taxa_producao": 42,
         "taxa_producao_esperada": 60
       },
       "esperado": {
-        "status_guardrail": "ATENCAO",
-        "status_final_min": "ATENCAO",
+        "status_guardrail": "CRITICO",
+        "status_final_min": "CRITICO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Produção abaixo do esperado"
+        ],
         "acoes": [
-          "TELEGRAM"
+          "TELEGRAM",
+          "EMAIL"
         ],
         "requer_humano": false,
-        "sensor_fault": false
+        "sensor_fault": false,
+        "status_llm_esperado": "CRITICO"
       }
     },
     {
@@ -128,6 +150,10 @@
       "esperado": {
         "status_guardrail": "ATENCAO",
         "status_final_min": "ATENCAO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Dados ausentes ou inválidos (vibracao)"
+        ],
         "acoes": [
           "TELEGRAM"
         ],
@@ -152,6 +178,10 @@
       "esperado": {
         "status_guardrail": "ATENCAO",
         "status_final_min": "ATENCAO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Dados ausentes ou inválidos (temperatura)"
+        ],
         "acoes": [
           "TELEGRAM"
         ],
@@ -176,6 +206,10 @@
       "esperado": {
         "status_guardrail": "ATENCAO",
         "status_final_min": "ATENCAO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Dados ausentes ou inválidos (temperatura)"
+        ],
         "acoes": [
           "TELEGRAM"
         ],
@@ -200,9 +234,9 @@
       "esperado": {
         "status_guardrail": "ATENCAO",
         "status_final_min": "ATENCAO",
-        "acoes": [
-          "TELEGRAM"
-        ],
+        "situacao": "NORMAL",
+        "problemas": [],
+        "acoes": [],
         "requer_humano": false,
         "sensor_fault": false,
         "status_llm_esperado": "CRITICO"
@@ -210,7 +244,7 @@
     },
     {
       "id": "C08",
-      "descricao": "Piso do guardrail: vibração 12 mm/s (>> crítico 7.1), resto nominal — status_final deve ser CRÍTICO mesmo que o LLM diga menos",
+      "descricao": "Teste 2 do enunciado (vibração) e piso do guardrail: vibração 12 mm/s (> 7), resto nominal → ALERTA mesmo que o LLM diga menos; Telegram (+ OS no Trello)",
       "historico": "estavel",
       "payload": {
         "id_maquina": "MOTOR_01",
@@ -225,9 +259,41 @@
       "esperado": {
         "status_guardrail": "CRITICO",
         "status_final_min": "CRITICO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Vibração elevada"
+        ],
         "acoes": [
           "TELEGRAM",
-          "EMAIL",
+          "TRELLO"
+        ],
+        "requer_humano": false,
+        "sensor_fault": false
+      }
+    },
+    {
+      "id": "C11",
+      "descricao": "Teste 2 do enunciado (temperatura): 85 °C (> 80), resto nominal → ALERTA, Telegram (+ OS no Trello)",
+      "historico": "estavel",
+      "payload": {
+        "id_maquina": "MOTOR_01",
+        "temperatura": 85,
+        "vibracao": 2,
+        "tensao": 220,
+        "corrente": 12,
+        "fator_potencia": 0.95,
+        "taxa_producao": 58,
+        "taxa_producao_esperada": 60
+      },
+      "esperado": {
+        "status_guardrail": "CRITICO",
+        "status_final_min": "CRITICO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Temperatura elevada"
+        ],
+        "acoes": [
+          "TELEGRAM",
           "TRELLO"
         ],
         "requer_humano": false,
@@ -251,6 +317,10 @@
       "esperado": {
         "status_guardrail": "ATENCAO",
         "status_final_min": "ATENCAO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Dados ausentes ou inválidos (id da máquina inválido)"
+        ],
         "acoes": [
           "TELEGRAM"
         ],
@@ -275,6 +345,10 @@
       "esperado": {
         "status_guardrail": "ATENCAO",
         "status_final_min": "ATENCAO",
+        "situacao": "ALERTA",
+        "problemas": [
+          "Dados ausentes ou inválidos (máquina não cadastrada)"
+        ],
         "acoes": [
           "TELEGRAM"
         ],

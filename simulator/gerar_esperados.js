@@ -5,7 +5,7 @@
  * (contracts/guardrail.js: validar + guardrail + consolidar) para cada
  * cenário com os nominais declarados em `maquinas_nominais`, e grava de
  * volta um bloco `esperado` por cenário com:
- *   status_guardrail, status_final_min, acoes, requer_humano, sensor_fault
+ *   status_guardrail, status_final_min, situacao, problemas, acoes, requer_humano, sensor_fault
  *
  * `status_final_min` é o status_final calculado com status_llm = null
  * (consolidar filtra null e usa só o piso do guardrail) — é um "mínimo"
@@ -34,6 +34,8 @@ const data = JSON.parse(fs.readFileSync(CENARIOS_PATH, 'utf8'));
 // ou concordância explícita do LLM com o piso (§7.1, §7.2 do plano).
 const STATUS_LLM_ESPERADO_MANUAL = {
   C02: 'CRITICO', // slide 15: crítico óbvio em manutenção e energia
+  C03: 'CRITICO', // FP 0,65 < 0,70: condição de alerta do enunciado
+  C04: 'CRITICO', // produção 70 % < 80 %: condição de alerta do enunciado
   C07: 'CRITICO', // tendência +15%/2h autoriza o LLM a escalar ATENCAO -> CRITICO
 };
 
@@ -51,6 +53,8 @@ for (const cenario of data.cenarios) {
   const esperado = {
     status_guardrail: leitura.guardrail.status,
     status_final_min: consolidado.status_final,
+    situacao: consolidado.situacao,
+    problemas: consolidado.problemas.map((p) => p.descricao),
     acoes: consolidado.acoes_previstas,
     requer_humano: consolidado.requer_humano,
     sensor_fault: leitura.guardrail.sensor_fault,
@@ -71,6 +75,7 @@ for (const c of data.cenarios) {
   console.log(
     `${c.id.padEnd(5)} guardrail=${c.esperado.status_guardrail.padEnd(8)} ` +
     `final_min=${c.esperado.status_final_min.padEnd(8)} ` +
+    `situacao=${c.esperado.situacao.padEnd(7)} ` +
     `requer_humano=${String(c.esperado.requer_humano).padEnd(5)} ` +
     `sensor_fault=${String(c.esperado.sensor_fault).padEnd(5)} ` +
     `acoes=[${c.esperado.acoes.join(',')}]` +
