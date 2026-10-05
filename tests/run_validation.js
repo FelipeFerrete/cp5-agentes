@@ -96,12 +96,27 @@ function numerosNaoRastreaveis(texto, fontes) {
   });
 }
 
+// http em vez de fetch: o fetch do Node desiste após 300 s sem cabeçalhos, e uma avaliação
+// com várias novas tentativas por limite do Groq pode passar disso.
+function postJson(url, corpo, timeoutMs) {
+  const http = require('http');
+  return new Promise((ok, falha) => {
+    const req = http.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } }, (res) => {
+      let texto = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => { texto += d; });
+      res.on('end', () => ok({ status: res.statusCode, texto }));
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`sem resposta em ${timeoutMs / 1000} s`)));
+    req.on('error', falha);
+    req.end(JSON.stringify(corpo));
+  });
+}
+
 async function avaliar(payload) {
   const t0 = Date.now();
-  const resp = await fetch(`${BASE_URL}/webhook/cp5/avaliar?origem=validacao`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-  });
-  const texto = await resp.text();
+  const resp = await postJson(`${BASE_URL}/webhook/cp5/avaliar?origem=validacao`, payload, 15 * 60 * 1000);
+  const texto = resp.texto;
   let json = null;
   try { json = JSON.parse(texto); } catch (e) { /* fica null */ }
   return { http: resp.status, json, texto, ms: Date.now() - t0 };
