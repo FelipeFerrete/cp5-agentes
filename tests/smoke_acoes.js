@@ -242,7 +242,13 @@ async function rodarCaso(nome, decisao, expectativa) {
   check('HTTP 200 do webhook', resp.status === 200);
   console.log('Resposta do webhook:', JSON.stringify(resp.json ?? resp.text));
 
-  const linhas = consultarAcoesLog(idDecisao);
+  // O webhook de teste responde quando o primeiro ramo chega ao fan-in; os outros
+  // canais terminam logo depois. Espera as linhas aparecerem (até 15 s) antes de conferir.
+  let linhas = consultarAcoesLog(idDecisao);
+  for (let i = 0; i < 30 && linhas.length < expectativa.linhas; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    linhas = consultarAcoesLog(idDecisao);
+  }
   check(`acoes_log tem ${expectativa.linhas} linha(s) (obtido: ${linhas.length})`, linhas.length === expectativa.linhas);
 
   if (expectativa.canais) {
